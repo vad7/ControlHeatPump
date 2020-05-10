@@ -195,26 +195,28 @@ int8_t  devOmronMX2::set_target(int16_t x,boolean show, int16_t _min, int16_t _m
     {FC=x; if(show) journal.jprintf(" Set %s: %.2f [Hz]\r\n",name,FC/100.0);   return err;} // установка частоты OK  - вывод сообщения если надо
      else { journal.jprintf("%s: Wrong frequency %.2f\n",name,x/100.0); return WARNING_VALUE; } 
   #else   // Боевой вариант
-  uint16_t hWord,lWord;
   uint8_t i;
   if ((!get_present())||(GETBIT(flags,fErrFC))) return err;    // выходим если нет инвертора или он заблокирован по ошибке
   if(GETBIT(HP.Option.flags, fBackupPower) && x > _data.maxFreqGen) x = _data.maxFreqGen;
   if ((x>=_min)&&(x<=_max))                     // Проверка диапазона разрешенных частот
    {
   #ifndef FC_ANALOG_CONTROL                                    // Не аналоговое управление
-          // Запись в регистры инвертора установленной частоты
-          for(i=0;i<FC_NUM_READ;i++)  // Делаем FC_NUM_READ попыток
-            {
-              err=write_0x10_32(MX2_TARGET_FR,x);
-              if (err==OK) break;                     // Команда выполнена
-              _delay(100);
-              journal.jprintf("%s: repeat set frequency\n",name);  // Выводим сообщение о повторной команде
-            }
-            
+	  	  if(testMode == NORMAL || testMode == HARD_TEST) {
+			  // Запись в регистры инвертора установленной частоты
+			  for(i=0;i<FC_NUM_READ;i++)  // Делаем FC_NUM_READ попыток
+				{
+				  err=write_0x10_32(MX2_TARGET_FR,x);
+				  if (err==OK) break;                     // Команда выполнена
+				  _delay(100);
+				  journal.jprintf("%s: repeat set frequency\n",name);  // Выводим сообщение о повторной команде
+				}
+	  	  }
           if(err==OK)  { FC=x; if(show) journal.jprintf(" Set %s: %.2f [Hz]\r\n",name,FC/100.0);return err;} // установка частоты OK  - вывод сообщения если надо
           else {err=ERR_LINK_FC; SETBIT1(flags,fErrFC); set_Error(err,name);return err;}                 // генерация ошибки
           // Проверка на установку частоты и адекватность инвертора
-          if( x!=read_0x03_32(MX2_TARGET_FR)) {err=ERR_FC_ERROR; SETBIT1(flags,fErrFC); set_Error(err,name);return err;}
+          if(testMode == NORMAL || testMode == HARD_TEST) {
+        	  if( x!=(int16_t)read_0x03_32(MX2_TARGET_FR)) {err=ERR_FC_ERROR; SETBIT1(flags,fErrFC); set_Error(err,name);return err;}
+          }
    #else  // Аналоговое управление
          FC=x;
          dac=((level100-level0)*FC-0*level100)/(100-0);
@@ -280,6 +282,11 @@ void  devOmronMX2::check_blockFC()
 int8_t devOmronMX2::get_readState()
 {
 uint8_t i;
+if(testMode != NORMAL && testMode != HARD_TEST) {
+	SETBIT0(flags, fErrFC);
+	state = 0;
+	return err = OK;
+}
 if ((!get_present())||(GETBIT(flags,fErrFC))) return err;  // выходим если нет инвертора или он заблокирован по ошибке
 err=OK;
 #ifndef FC_ANALOG_CONTROL                                    // Не аналоговое управление
@@ -516,7 +523,8 @@ void devOmronMX2::get_paramFC(char *var,char *ret)
     if(strcmp(var,fc_DT_TEMP)==0)               {  _ftoa(ret,(float)_data.dtTemp/100.0,2); } else // градусы
     if(strcmp(var,fc_DT_TEMP_BOILER)==0)        {  _ftoa(ret,(float)_data.dtTempBoiler/100.0,2); } else // градусы
     if(strcmp(var,fc_MB_ERR)==0)        		{  _itoa(numErr, ret); } else
-   	if(strcmp(var,fc_FC_TIME_READ)==0)   		{  _itoa(FC_TIME_READ, ret); } else
+    if(strcmp(var,fc_FC_RETOIL_FREQ)==0)   		{ 	strcat(ret, "-"); } else
+  	if(strcmp(var,fc_FC_TIME_READ)==0)   		{  _itoa(FC_TIME_READ, ret); } else
    		strcat(ret,(char*)cInvalid);
 }
    
@@ -569,6 +577,10 @@ boolean devOmronMX2::set_paramFC(char *var, float x)
 // Получить информацию о частотнике, информация добавляется в buf
 char * devOmronMX2::get_infoFC(char *buf)
 {
+  if(testMode != NORMAL && testMode != HARD_TEST) {
+	  strcat(buf, "|TEST MODE|;");
+	  return buf;
+  }
 #ifndef FC_ANALOG_CONTROL    // НЕ АНАЛОГОВОЕ УПРАВЛЕНИЕ
   if(!HP.dFC.get_present()) { strcat(buf,"|Данные не доступны (нет инвертора)|;"); return buf;}          // Инвертора нет в конфигурации
   if(HP.dFC.get_blockFC())  { strcat(buf,"|Данные не доступны (нет связи по Modbus, инвертор заблокирован)|;"); return buf;}  // Инвертор заблокирован
