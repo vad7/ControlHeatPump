@@ -1,6 +1,6 @@
 // Copyright (c) 2016-2020 by Pavel Panfilov <firstlast2007@gmail.com> skype pav2000pav
 // &                       by Vadim Kulakov vad7@yahoo.com, vad711
-var VER_WEB = "1.077";
+var VER_WEB = "1.079";
 var urlcontrol = ''; //  автоопределение (если адрес сервера совпадает с адресом контроллера)
 // адрес и порт контроллера, если адрес сервера отличен от адреса контроллера (не рекомендуется)
 //var urlcontrol = 'http://192.168.0.199';
@@ -27,8 +27,9 @@ function setParam(paramid, resultid) {
 		elval = "";
 		for(var j = 0; j < colls.length; j++) {
 			var prof = colls[j].innerHTML;
-			if(prof == "") prof = "0";
+			if(prof == "") prof = 0;
 			else if(prof[0] == '+') prof = Number(prof.substring(1)) * 10;
+			else if(prof == '-') prof = 127;
 			else if(prof[0] == '-') prof = 256 + Number(prof) * 10;
 			else prof = Number(prof) + 0x80; 
 			if(prof != lprof) {
@@ -216,9 +217,12 @@ function loadParam(paramid, noretry, resultdiv) {
 												v ^= 0x80;
 												colls[j].style = "color:yellow";
 											} else {
-												if(v >= 0x80) v -= 256;
-												v = v / 10; 
-												if(v > 0) v = '+' + v;
+												if(v == 127) v = '-';
+												else {	
+													if(v >= 0x80) v -= 256;
+													v = v / 10; 
+													if(v > 0) v = '+' + v;
+												}
 												colls[j].style = "color:red";
 											}
 											colls[j].innerHTML = v ? v : "";
@@ -563,7 +567,7 @@ function loadParam(paramid, noretry, resultdiv) {
 										element.value = values[1];
 										element.innerHTML = values[1];
 									}
-									element = document.getElementById(valueid);
+									if(!(element = document.getElementById(valueid))) if(resultdiv) element = document.getElementById(resultdiv);
 									if(element) {
 										if(element.className == "charsw") {
 											element.innerHTML = element.title.substr(values[1].toLowerCase().replace(/[^\w\d]/g, ""), 1);

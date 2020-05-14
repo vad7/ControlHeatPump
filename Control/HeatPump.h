@@ -245,6 +245,7 @@ class HeatPump
     void vUpdate();                                          // Итерация по управлению всем ТН - старт-стоп
     void calculatePower();                                   // Вычисление мощностей контуров и КОП
     void eraseError();                                       // стереть последнюю ошибку
+    void process_error(void);
 
     __attribute__((always_inline)) inline int8_t get_errcode(){return error;} // Получить код последней ошибки
     char    *get_lastErr(){return note_error;} // Получить описание последней ошибки, которая вызвала останов ТН, при удачном запуске обнуляется
@@ -272,6 +273,7 @@ class HeatPump
     // Строковые функции
     char *StateToStr();                 // Получить состояние ТН в виде строки
     char *StateToStrEN();               // Получить состояние ТН в виде английской строки
+    void get_StateModworkStr(char *strReturn);
     char *TestToStr();                  // Получить режим тестирования
     int8_t save_DumpJournal(boolean f); // Записать состояние теплового насоса в журнал
     
@@ -593,7 +595,7 @@ class HeatPump
     boolean onBoiler;                     // Если true то идет нагрев бойлера ТН (не ТЭНом)
     boolean onSallmonela;                 // Если true то идет Обеззараживание
     
-    friend int8_t set_Error(int8_t err, char *nam );// Установка критической ошибки для класса ТН
+    friend void set_Error(int8_t err, char *nam );// Установка критической ошибки для класса ТН
   };
 
 #endif
