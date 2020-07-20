@@ -1736,20 +1736,10 @@ xGoWait:
 		if(get_State() != pWAIT_HP) return; // Если состяние НЕ РАВНО ожиданию то ничего не делаем, выходим восстанавливать нечего
 		journal.jprintf_date( "  Resume . . .\n");
 	}
+	setState(pSTARTING_HP);                              // Производится старт -  устанавливаем соответсвующее состояние
 	//  Если требуется сбрасываем инвертор  (проверям ошибку и пишем в журнал)
-#ifdef AUTO_START_GENERATOR
-	if(GETBIT(Option.flags, fBackupPower) && dFC.get_state() == ERR_LINK_FC) {
-		dRelay[RGEN].set_ON();
-		_delay(AUTO_START_GENERATOR * 1000); // Задержка на запуск, в том числе и для прогрева генератора
-	}
-#endif
-	if(ResetFC() != OK) {                                // Сброс инвертора если нужно
-		if(error == OK) set_Error(ERR_RESET_FC, (char*) __FUNCTION__); else process_error();
-		return;
-	}
 	eraseError();                                      // Обнулить ошибку только после сброса инвертора! иначе она может повторно возникнет при ошибке инвертора
 
-	setState(pSTARTING_HP);                              // Производится старт -  устанавливаем соответсвующее состояние
 	Status.ret = pNone;                                    // Состояние алгоритма
 	lastEEV = -1;                                          // -1 это признак того что слежение eev еще не рабоатет (выключения компрессора  небыло)
 
@@ -2771,7 +2761,10 @@ MODE_HP HeatPump::get_Work()
 		ret = pOFF;
 		break;
 	case pCOMP_ON:
-		ret = pBOILER;
+		if(GETBIT(Option.flags, fBackupPower) && !GETBIT(Prof.Boiler.flags, fWorkOnGenerator)) {
+			Status.ret = pBgen;
+			ret = pOFF;
+		} else ret = pBOILER;
 		break;
 	case pCOMP_NONE:
 		ret = pBOILER + pCONTINUE;
@@ -2975,7 +2968,29 @@ void HeatPump::compressorON()
 
 	if(is_compressor_on()) return;                                  // Компрессор уже работает
 	if(is_next_command_stop()) {
+xNextStop:
 		journal.jprintf(" Next command stop(%d), skip start", next_command);
+		return;
+	}
+
+#ifdef AUTO_START_GENERATOR
+	if(GETBIT(Option.flags, fBackupPower) && dFC.get_state() == ERR_LINK_FC) {
+		dRelay[RGEN].set_ON();
+		_delay(AUTO_START_GENERATOR * 1000); // Задержка на запуск, в том числе и для прогрева генератора
+		for(uint16_t i = AUTO_START_GEN_TIMEOUT / (FC_TIME_READ / 1000); i > 0; i--) {
+			if(NO_Power) return;
+			if(is_next_command_stop()) goto xNextStop;
+			if(dFC.get_err() == OK) break;
+			_delay(FC_TIME_READ);
+		}
+		if(dFC.get_err() != OK) {
+			set_Error(ERR_FC_NO_LINK, (char*) __FUNCTION__);
+			return;
+		}
+	}
+#endif
+	if(ResetFC() != OK) {                                // Сброс инвертора если нужно
+		set_Error(ERR_RESET_FC, (char*) __FUNCTION__);
 		return;
 	}
 
@@ -3661,7 +3676,7 @@ void HeatPump::calculatePower()
 #endif
 
 // Получение мощностей потребления электроэнергии
-	COP = dFC.get_power();  // получить текущую мощность компрессора
+	uint16_t fc_pwr = dFC.get_power();  // получить текущую мощность компрессора
 #ifdef USE_ELECTROMETER_SDM  // Если есть электросчетчик можно рассчитать полное потребление (с насосами)
 	if(dSDM.get_link()) {  // Если счетчик работает (связь не утеряна)
 		power220 = dSDM.get_Power();
@@ -3673,14 +3688,14 @@ void HeatPump::calculatePower()
 	for(uint8_t i = 0; i < sizeof(correct_power220)/sizeof(correct_power220[0]); i++) if(dRelay[correct_power220[i].num].get_Relay()) power220 += correct_power220[i].value;
 #endif
 #ifdef ADD_FC_POWER_WHEN_GENERATOR
-	if(GETBIT(Option.flags, fBackupPower)) power220 += dFC.get_power();
+	if(GETBIT(Option.flags, fBackupPower)) power220 += fc_pwr;
 #endif
 
 // Расчет КОП
 #ifndef COP_ALL_CALC    // если КОП надо считать не всегда 
 if(is_compressor_on()){      // Если компрессор работает
 #endif	
-	if(COP>0) COP = powerOUT * 100 / COP; else COP=0; // ЧИСТЫЙ КОП в сотых долях !!!!!!
+	if(fc_pwr) COP = powerOUT * 100 / fc_pwr; else COP=0; // ЧИСТЫЙ КОП в сотых долях !!!!!!
 	if(power220 != 0) fullCOP = powerOUT * 100 / power220; else fullCOP = 0; // ПОЛНЫЙ КОП в сотых долях !!!!!!
 		#ifndef COP_ALL_CALC        // Ограничение переходных процессов для варианта расчета КОП только при работающем компрессоре, что бы графики нормально масштабировались
 		if(COP>10*100) COP=8*100;       // КОП не более 8

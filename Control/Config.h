@@ -2113,7 +2113,7 @@ const char *noteTemp[] = {"Температура улицы",
         #define DRV_EEV_L9333                                                 // Драйвера ЭРВ L9333  диагностика
         #define KEY_ON_OFF                                                    // KEY1 Наличие кнопки включения и переключения в safeNetwork (нажата при сбросе)
         #define LOAD_VERIFICATION                                             // Признак чтения настроек c проверкой версии, длины, CRC16. Закоментируйте эту строку для ПОПЫТКИ загрузить старый формат, Запись всегда идет в новом
-        #define MODBUS_TIME_TRANSMISION 4                                     // Пауза (msec) между запросом и ответом по модбас было 4
+        #define MODBUS_TIME_TRANSMISION 1                                     // Пауза (msec) между запросом и ответом по модбас было 4
         
         //  I2C память ---------------------------------------------------------------
         #define I2C_EEPROM_64KB                                               // Использование памяти I2C для записи журнала при коментарии используется оперативка
@@ -3337,7 +3337,8 @@ const char *noteTemp[] = {"Температура улицы",
 //	#define USE_PZEM004T			// Наличие электросчетчика PZEM-004T v3 Modbus/UART
 	#define ADD_FC_POWER_WHEN_GENERATOR // Прибавлять расчитанную мощность частотника к показаниям счетчика, когда работа через генератор
     #define USE_UPS					// Используется ИБП на контроллер, проверка через вход SPOWER
-	#define AUTO_START_GENERATOR 60 // Автозапуск генератора (реле RGEN), ждать секунд (для прогрева)
+	#define AUTO_START_GENERATOR 30 // Автозапуск генератора (реле RGEN), ждать секунд (для прогрева)
+	#define AUTO_START_GEN_TIMEOUT 200 // Таймаут ожидания старта генератора, сек
 	#define STATS_USE_BUFFER_FOR_SAVING // Сохранять статистику только когда буфер (512 байт) заполнен, иначе каждый день
 	#define MIN_RAM_CHARTS
 
@@ -3384,7 +3385,7 @@ const char *noteTemp[] = {"Температура улицы",
 	#ifdef TEST_BOARD
 		#define DEBUG                   // В последовательный порт шлет сообщения в первую очередь ошибки
 //		#define DEBUG_NATIVE_USB		// Отладка через второй USB порт (Native)
-//		#define DEBUG_MODWORK           // Вывод в консоль состояние HP при работе
+		#define DEBUG_MODWORK           // Вывод в консоль состояние HP при работе
 //    	#define NEXTION_DEBUG 			// Отладка дисплея Nextion
 //		#define DEBUG_PID				// Отладка ПИДа
 		#define I2C_FRAM_MEMORY  0		// 1 - FRAM память
@@ -3426,7 +3427,7 @@ const char *noteTemp[] = {"Температура улицы",
 	#ifdef  TEST_BOARD
 		#define SD_CLOCK				20	// частота SPI для SD карты в МГц
     	// СЕТЕВЫЕ НАСТРОЙКИ --------------------------------------------------------------
-		uint8_t SPI_RATE 			  = 6;	// делитель для SPI шины, 2=42MHz, 3=28MHz, 4=21MHz, 6=14MHz
+		uint8_t SPI_RATE 			  = 4;	// делитель для SPI шины, 2=42MHz, 3=28MHz, 4=21MHz, 6=14MHz
 		const boolean   defaultDHCP	=	false;
 		const IPAddress defaultIP		(192, 168, 0, 199);
 		const IPAddress defaultGateway	(192, 168, 0, 10);
@@ -3456,6 +3457,7 @@ const char *noteTemp[] = {"Температура улицы",
     #define MODBUS_TIME_TRANSMISION 0           // Пауза (msec) между запросом и ответом по модбас было 4
     //#define PIN_MODBUS_RSE          22          // Не используется из-за платы UART-RS485! Управление направлением передачи 485 для связи с инвертором по Modbus (1-передача 0-прием)
 	#define SDM_READ_PERIOD     	30000       // Время опроса счетчика, не важных параметров (0 - нет), в ms
+	#define SDM_NUM_READ        	2           // Число попыток чтения счетчика (подряд) по модбас до его отключения (ошибка не генерится)
 
     // Защиты по входному напряжению. Используется счетчик SDM*
 //	#define SDM_MIN_VOLTAGE     120.0          // Минимальное напряжение работы ТН при падении - предупреждение

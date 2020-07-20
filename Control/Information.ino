@@ -308,8 +308,8 @@ void Journal::_write(char *dataPtr)
 {
 	int32_t numBytes;
 	if(dataPtr == NULL || (numBytes = strlen(dataPtr)) == 0) return;  // Записывать нечего
+	if(numBytes > PRINTF_BUF) numBytes = PRINTF_BUF; // Ограничиваем размер
 #ifdef I2C_EEPROM_64KB // запись в еепром
-	if(numBytes > JOURNAL_LEN - 2) numBytes = JOURNAL_LEN - 2; // Ограничиваем размером журнала JOURNAL_LEN не забываем про два служебных символа
 	// Запись в I2C память
 	if(SemaphoreTake(xI2CSemaphore, I2C_TIME_WAIT / portTICK_PERIOD_MS) == pdFALSE) {  // Если шедулер запущен то захватываем семафор
 		journal.printf((char*) cErrorMutex, __FUNCTION__, MutexI2CBuzy);
@@ -335,12 +335,12 @@ void Journal::_write(char *dataPtr)
 					SerialDbg.print(errorWriteI2C);
 				#endif
 			} else {
-				bufferTail = numBytes;
+				bufferTail = numBytes >= 0 ? numBytes : JOURNAL_LEN - 1;
 				bufferHead = bufferTail + 1;
 				err = OK;
 			}
 		}
-	} else {  // Запись в один прием Буфер не полный
+	} else {  // Запись в один прием
 		if(eepromI2C.write(I2C_JOURNAL_START + bufferTail, (byte*) dataPtr, numBytes + 1 + full)) {
 			#ifdef DEBUG
 				if(err != ERR_WRITE_I2C_JOURNAL) SerialDbg.print(errorWriteI2C);
@@ -355,7 +355,6 @@ void Journal::_write(char *dataPtr)
 #else   // Запись в память
 	// SerialDbg.print(">"); SerialDbg.print(numBytes); SerialDbg.println("<");
 
-	if( numBytes >= JOURNAL_LEN ) numBytes = JOURNAL_LEN;// Ограничиваем размером журнала
 	// Запись в журнал
 	if(numBytes > JOURNAL_LEN - bufferTail)//  Запись в два приема если число записываемых бит больше чем место от конца очереди до конца буфера
 	{
@@ -670,6 +669,7 @@ boolean Profile::set_boiler(char *var, char *c)
 	if(strcmp(var,boil_TEMP_RBOILER)==0)	{ if((x>=0)&&(x<=60))  {Boiler.tempRBOILER=rd(x, 100); return true;} else return false;} else   // температура включения догрева бойлера
 	if(strcmp(var,boil_dAddHeat)==0)	    { Boiler.dAddHeat = rd(x, 100); return true;} else
 	if(strcmp(var,boil_DischargeDelta)==0)	{ Boiler.DischargeDelta = rd(x, 10); return true;} else
+	if(strcmp(var,boil_fWorkOnGenerator)==0){ if(x) SETBIT1(Boiler.flags, fWorkOnGenerator); else SETBIT0(Boiler.flags, fWorkOnGenerator); return true; } else
 	return false;
 }
 
@@ -712,6 +712,7 @@ char* Profile::get_boiler(char *var, char *ret)
  if(strcmp(var,boil_dAddHeat)==0){        _dtoa(ret,Boiler.dAddHeat/10,1); return ret;       }else
  if(strcmp(var,boil_DischargeDelta)==0){  _dtoa(ret, Boiler.DischargeDelta, 1); return ret;       }else
  if(strcmp(var,boil_HeatUrgently)==0){if(HP.HeatBoilerUrgently) return strcat(ret,(char*)cOne); else return strcat(ret,(char*)cZero); }else
+ if(strcmp(var,boil_fWorkOnGenerator)==0){ if(GETBIT(Boiler.flags, fWorkOnGenerator)) return strcat(ret,(char*)cOne); else return strcat(ret,(char*)cZero); }else
  return strcat(ret,(char*)cInvalid);
 }
 
