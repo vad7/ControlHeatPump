@@ -55,7 +55,15 @@ struct type_status
 // Структура для хранения различных счетчиков (максимальный размер 128-1 байт!!!!!)
 #define fMH_ON    	0       // флаг Включения ТН (пишется внутрь счетчиков flags)
 
-#define I2C_COUNT_EEPROM_HEADER 0xAA
+#ifndef TEST_BOARD
+	#ifdef I2C_EEPROM_64KB
+		#define I2C_COUNT_EEPROM_HEADER 0xAA
+	#else
+		#define I2C_COUNT_EEPROM_HEADER 0xAB
+	#endif
+#else
+	#define I2C_COUNT_EEPROM_HEADER 0xAC
+#endif
 struct type_motoHour_old
 {
   byte Header;      // признак данных
@@ -99,6 +107,40 @@ boolean  Charts_when_comp_on = false;
 #endif
 uint8_t Request_LowConsume = 0xFF;
 
+#ifdef WATTROUTER
+#define  WR_fActive				1				// Ваттроутер включен
+#define  WR_fLog				2				// Логирование ваттроутера
+#define  WR_fLogFull			3				// Логирование ваттроутера полное
+#define  WR_fLoadMask			((1<<WR_NumLoads)-1)
+#define  WR_fTYPE				uint8_t
+int16_t  WR_Pnet = -32768;
+#ifdef WR_PNET_AVERAGE
+int16_t  WR_Pnet_avg[WR_PNET_AVERAGE];
+uint8_t  WR_Pnet_avg_idx = 0;
+int32_t  WR_Pnet_avg_sum = 0;
+boolean  WR_Pnet_avg_init = true;
+#endif
+WR_fTYPE WR_Refresh = 0;
+int16_t  WR_LoadRun[WR_NumLoads];
+uint32_t WR_SwitchTime[WR_NumLoads];
+uint32_t WR_LastSwitchTime = 0;
+struct {
+	WR_fTYPE Loads;						// Биты активирования нагрузки
+	WR_fTYPE Loads_PWM;					// Биты нагрузки PWM
+	uint16_t Flags;						// Флаги
+	int16_t  MinNetLoad;				// Сколько минимально можно брать из сети, Вт
+	int16_t  LoadHist;					// Гистерезис нагрузки, Вт
+	int16_t  LoadAdd;					// Увеличение нагрузки PWM за один шаг, Вт
+	uint16_t NextSwitchPause;			// Задержка следующего переключения реле, секунды
+	uint16_t TurnOnPause;				// Задержка включения реле после его выключения, секунды
+	uint16_t TurnOnMinTime;				// Минимальное время включения реле, секунды
+	uint16_t PWM_Freq;					// Гц
+	uint8_t  PWM_FullPowerTime;			// Время работы на максимальной мощности для PWM и время паузы после, 0 - выкл, минут
+	uint8_t  PWM_FullPowerLimit;		// Процент ограничения мощности после времени максимальной работы, %
+	int16_t  LoadPower[WR_NumLoads];	// Мощности нагрузки, Вт
+} WR;
+#endif
+
 // Рабочие флаги ТН
 #define fHP_BoilerTogetherHeat	0			// Идет нагрев бойлера вместе с отоплением
 #define fHP_SunNotInited		1			// Солнечный коллектор не инициализирован
@@ -136,6 +178,7 @@ struct type_optionHP
  uint8_t nStart;						// Число попыток пуска компрессора
  uint8_t sleep;							// Время засыпания дисплея минуты
  uint8_t dim;							// Яркость дисплея %
+ uint8_t  _RESERVED_;
  uint16_t tChart;						// период сбора статистики в секундах!!
  int16_t tempRHEAT;						// Значение температуры для управления дополнительным ТЭН для нагрева СО
  uint16_t pausePump;					// Время паузы  насоса при выключенном компрессоре СЕКУНДЫ
@@ -388,6 +431,9 @@ class HeatPump
    uint16_t get_maxBackupPower() {return Option.maxBackupPower;};      // Максимальная мощность при питании от генератора (Вт)
    uint8_t  get_BackupPower() {return GETBIT(Option.flags,fBackupPower);}// получить флаг использования генератора (ограничение мощности)
    boolean  set_BackupPower(boolean f) {if(f)SETBIT1(Option.flags,fBackupPower);else SETBIT0(Option.flags,fBackupPower);return GETBIT(Option.flags,fBackupPower);}// установить флаг использования генератора (ограничение мощности)
+#ifdef SGENERATOR
+   void     check_fBackupPower(void) { Option.flags = (Option.flags & ~(1<<fBackupPower)) | ((sInput[SGENERATOR].get_Input() == sInput[SGENERATOR].get_alarmInput())<<fBackupPower); };
+#endif
 
    uint8_t  get_nStart() {return Option.nStart;};                      // получить максимальное число попыток пуска ТН
    uint8_t  get_sleep() {return Option.sleep;}                         //
@@ -577,7 +623,6 @@ class HeatPump
     uint32_t stopCompressor;              // время останова компрессора (для опеспечения паузы)
     uint32_t offBoiler;                   // время выключения нагрева ГВС ТН (необходимо для переключения на другие режимы на ходу)
     uint32_t startDefrost;                // время срабатывания датчика разморозки
- //   uint32_t timeBoilerOff;               // Время переключения (находу) с ГВС на отопление или охлаждения (нужно для временной блокировки защит) если 0 то переключения не было
     uint32_t startSallmonela;             // время начала обеззараживания
     uint32_t command_completed;			  // Время отработки команды
     boolean  compressor_in_pause;         // Компрессор в паузе

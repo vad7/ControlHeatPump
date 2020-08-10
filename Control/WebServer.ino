@@ -645,7 +645,6 @@ void parserGET(uint8_t thread, int8_t )
 		}
 		if (strcmp(str,"update_NTP")==0)  // Функция update_NTP обновление времени по NTP
 		{
-			// set_time_NTP();                                                 // Обновить время
 			HP.timeNTP=0;                                    // Время обновления по NTP в тиках (0-сразу обновляемся)
 			strcat(strReturn,"Update time from NTP");
 			ADD_WEBDELIM(strReturn);
@@ -1522,6 +1521,10 @@ void parserGET(uint8_t thread, int8_t )
 					m_snprintf(strReturn + m_strlen(strReturn), 64, "%s;%d;", HP.dRelay[correct_power220[i].num].get_name(), correct_power220[i].value);
 				}
 #endif
+#ifdef WATTROUTER
+			} else if(strcmp(str, "WR") == 0) {   // Функция get_tblWR
+				_itoa(WR_NumLoads, strReturn);
+#endif
 			} else goto x_FunctionNotFound;
 			ADD_WEBDELIM(strReturn);
 			continue;
@@ -2301,6 +2304,46 @@ x_get_aTemp:
 					}  // end else
 				} //if ((strstr(str,"Temp")>0)
 
+#ifdef WATTROUTER
+				// Ваттроутер
+				if(strncmp(str + 4, "WR", 2) == 0) { // get_WR...
+					i = *str == 's'; // set_WR
+					str += 6;
+					p = abs(atoi(x));
+					if(p < WR_NumLoads) {
+						if(*str == 'L') { // get_WRL(n)
+							if(i) {
+								int16_t val = pm;
+								if(GETBIT(WR.Loads_PWM, p)) WR_Change_Load_PWM(p, val - WR_LoadRun[p]);
+								else {
+									if(WR_Load_pins[i] < 0) { // HTTP
+										if(val < 0) val = 0; else if(val > WR.LoadPower[p]) val = WR.LoadPower[p];
+										WR_LoadRun[p] = val;
+										WR_Refresh |= (1<<p);
+									} else WR_Switch_Load(p, val > 0);
+								}
+							}
+							_itoa(WR_LoadRun[p], strReturn);
+						} else if(*str == 'T') { // get_WRT(n)
+							l_i32 = WR_SwitchTime[p];
+							if(l_i32 == 0) strcat(strReturn, "-"); else DecodeTimeDate(l_i32, strReturn);
+						} else if(*str == 'N') { // get_WRN(n)
+							if(WR_Load_pins[p] < 0) strcat(strReturn, "HTTP-"); else strcat(strReturn, "D");
+							_itoa(abs(WR_Load_pins[p]), strReturn);
+#ifdef WR_Load_pins_Boiler_INDEX
+							if(p == WR_Load_pins_Boiler_INDEX) strcat(strReturn, "(B)");
+#endif
+						} else { // get_WR(n)
+							if(p == 0) {
+								if(WR_Pnet == -32768) strcat(strReturn, "-"); else _itoa(WR_Pnet, strReturn);
+							}
+						}
+					} else strcat(strReturn,"E08"); // выход за диапазон, значение не установлено
+					ADD_WEBDELIM(strReturn);
+					continue;
+				}
+#endif
+
 				// РЕЛЕ
 				if(strstr(str,"Relay"))          // Проверка для запросов содержащих Relay
 				{
@@ -2364,11 +2407,11 @@ x_get_aTemp:
 					{
 						if(strncmp(str,"get_", 4)==0) {              // Функция get_
 							str += 4;
-							if(strcmp(str,"Press")==0)           // Функция get_Press
+							if(strcmp(str,"Press")==0)           // Функция get_Value
 							{
 								if(HP.sADC[p].get_present())         // Если датчик есть в конфигурации то выводим значение
 								{
-									_dtoa(strReturn, HP.sADC[p].get_Press(), 2);
+									_dtoa(strReturn, HP.sADC[p].get_Value(), 2);
 	#ifdef EEV_DEF
 									if(p < 2) {
 										m_snprintf(strReturn + m_strlen(strReturn), 20, " [%.2d°]", PressToTemp(p));
@@ -2381,24 +2424,24 @@ x_get_aTemp:
 							if(strncmp(str, "adc", 3)==0)           // Функция get_adcPress
 							{ _itoa(HP.sADC[p].get_lastADC(),strReturn); ADD_WEBDELIM(strReturn); continue; }
 
-							if(strncmp(str, "min", 3)==0)           // Функция get_minPress
+							if(strncmp(str, "min", 3)==0)           // Функция get_minValue
 							{
 								if (HP.sADC[p].get_present())          // Если датчик есть в конфигурации то выводим значение
-x_get_minPress: 					_dtoa(strReturn, HP.sADC[p].get_minPress(), 2);
+x_get_minValue: 					_dtoa(strReturn, HP.sADC[p].get_minValue(), 2);
 								else strcat(strReturn,"-");              // Датчика нет ставим прочерк
 								ADD_WEBDELIM(strReturn); continue;
 							}
 
-							if(strncmp(str, "max", 3)==0)           // Функция get_maxPress
+							if(strncmp(str, "max", 3)==0)           // Функция get_maxValue
 							{
 								if (HP.sADC[p].get_present())           // Если датчик есть в конфигурации то выводим значение
-x_get_maxPress: 					_dtoa(strReturn, HP.sADC[p].get_maxPress(), 2);
+x_get_maxValue: 					_dtoa(strReturn, HP.sADC[p].get_maxValue(), 2);
 								else strcat(strReturn,"-");               // Датчика нет ставим прочерк
 								ADD_WEBDELIM(strReturn); continue;
 							}
 
-							if(strncmp(str, "zero", 4)==0)           // Функция get_zeroPress
-							{ _itoa(HP.sADC[p].get_zeroPress(),strReturn); ADD_WEBDELIM(strReturn); continue; }
+							if(strncmp(str, "zero", 4)==0)           // Функция get_zeroValue
+							{ _itoa(HP.sADC[p].get_zeroValue(),strReturn); ADD_WEBDELIM(strReturn); continue; }
 
 							if(strncmp(str, "trans", 5)==0)           // Функция get_transPress
 							{ _dtoa(strReturn, HP.sADC[p].get_transADC(), 3); ADD_WEBDELIM(strReturn); continue; }
@@ -2416,8 +2459,8 @@ x_get_maxPress: 					_dtoa(strReturn, HP.sADC[p].get_maxPress(), 2);
 								ADD_WEBDELIM(strReturn); continue;
 							}
 
-							if(strncmp(str, "test", 4)==0)           // Функция get_testPress
-							{ _dtoa(strReturn, HP.sADC[p].get_testPress(), 2); ADD_WEBDELIM(strReturn); continue; }
+							if(strncmp(str, "test", 4)==0)           // Функция get_testValue
+							{ _dtoa(strReturn, HP.sADC[p].get_testValue(), 2); ADD_WEBDELIM(strReturn); continue; }
 
 							if(strncmp(str, "eP", 2)==0)           // Функция get_ePress (errorcode)
 							{ _itoa(HP.sADC[p].get_lastErr(),strReturn); ADD_WEBDELIM(strReturn); continue; }
@@ -2438,22 +2481,22 @@ x_get_maxPress: 					_dtoa(strReturn, HP.sADC[p].get_maxPress(), 2);
 								ADD_WEBDELIM(strReturn);
 								continue;
 							}
-							if(strncmp(str, "test", 4) == 0)           // Функция set_testPress
+							if(strncmp(str, "test", 4) == 0)           // Функция set_testValue
 							{
-								if(HP.sADC[p].set_testPress(rd(pm, 100)) == OK)    // Установить значение
+								if(HP.sADC[p].set_testValue(rd(pm, 100)) == OK)    // Установить значение
 								{
-									_dtoa(strReturn, HP.sADC[p].get_testPress(), 2);
+									_dtoa(strReturn, HP.sADC[p].get_testValue(), 2);
 									ADD_WEBDELIM(strReturn); continue;
 								} else {// выход за диапазон ПРЕДУПРЕЖДЕНИЕ значение не установлено
 									strcat(strReturn, "E05" WEBDELIM);	continue;
 								}
 							}
-							if(strncmp(str, "min", 3) == 0) {  // set_minPress
-								if(HP.sADC[p].set_minPress(rd(pm, 100)) == OK) goto x_get_minPress;
+							if(strncmp(str, "min", 3) == 0) {  // set_minValue
+								if(HP.sADC[p].set_minValue(rd(pm, 100)) == OK) goto x_get_minValue;
 								else { strcat(strReturn, "E05" WEBDELIM);  continue; }         // выход за диапазон ПРЕДУПРЕЖДЕНИЕ значение не установлено
 							}
-							if(strncmp(str, "max", 3) == 0) { // set_maxPress
-								if(HP.sADC[p].set_maxPress(rd(pm, 100)) == OK) goto x_get_maxPress;
+							if(strncmp(str, "max", 3) == 0) { // set_maxValue
+								if(HP.sADC[p].set_maxValue(rd(pm, 100)) == OK) goto x_get_maxValue;
 								else {  strcat(strReturn, "E05" WEBDELIM); continue;  }         // выход за диапазон ПРЕДУПРЕЖДЕНИЕ значение не установлено
 							}
 
@@ -2463,11 +2506,11 @@ x_get_maxPress: 					_dtoa(strReturn, HP.sADC[p].get_maxPress(), 2);
 								else { strcat(strReturn,"E05" WEBDELIM);  continue;}         // выход за диапазон ПРЕДУПРЕЖДЕНИЕ значение не установлено
 							}
 
-							if(strncmp(str, "zero", 4) == 0)           // Функция set_zeroPress
+							if(strncmp(str, "zero", 4) == 0)           // Функция set_zeroValue
 							{
-								if(HP.sADC[p].set_zeroPress((int16_t) pm) == OK)    // Установить значение
+								if(HP.sADC[p].set_zeroValue((int16_t) pm) == OK)    // Установить значение
 								{
-									_itoa(HP.sADC[p].get_zeroPress(), strReturn);
+									_itoa(HP.sADC[p].get_zeroValue(), strReturn);
 									ADD_WEBDELIM(strReturn);
 									continue;
 								} else {   // выход за диапазон ПРЕДУПРЕЖДЕНИЕ значение не установлено

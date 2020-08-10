@@ -968,3 +968,189 @@ int32_t round_div_int32(int32_t value, int16_t div)
 	}
 	return value;
 }
+
+inline uint32_t mapResolution(uint32_t value, uint32_t from, uint32_t to) {
+	if (from == to)
+		return value;
+	if (from > to)
+		return value >> (from-to);
+	else
+		return value << (to-from);
+}
+
+// PWM output to PWM/TIMER pins
+void PWM_Write(uint32_t ulPin, uint32_t ulValue) {
+	uint32_t attr = g_APinDescription[ulPin].ulPinAttribute;
+	if ((attr & PIN_ATTR_PWM) == PIN_ATTR_PWM) {
+		if (!PWMEnabled) {
+			// PWM Startup code
+		    pmc_enable_periph_clk(PWM_INTERFACE_ID);
+		    PWMC_ConfigureClocks(PWM_WRITE_OUT_FREQUENCY * ((1<<PWM_WRITE_OUT_RESOLUTION)-1), 0, VARIANT_MCK);
+			PWMEnabled = 1;
+		}
+		uint32_t chan = g_APinDescription[ulPin].ulPWMChannel;
+		if ((g_pinStatus[ulPin] & 0xF) != PIN_STATUS_PWM) {
+			// Setup PWM for this pin
+			PIO_Configure(g_APinDescription[ulPin].pPort,
+					g_APinDescription[ulPin].ulPinType,
+					g_APinDescription[ulPin].ulPin,
+					g_APinDescription[ulPin].ulPinConfiguration);
+			PWMC_ConfigureChannel(PWM_INTERFACE, chan, PWM_CMR_CPRE_CLKA, 0, 0);
+			PWMC_SetPeriod(PWM_INTERFACE, chan, PWM_MAX_DUTY_CYCLE);
+			PWMC_SetDutyCycle(PWM_INTERFACE, chan, ulValue);
+			PWMC_EnableChannel(PWM_INTERFACE, chan);
+			g_pinStatus[ulPin] = (g_pinStatus[ulPin] & 0xF0) | PIN_STATUS_PWM;
+		}
+		PWMC_SetDutyCycle(PWM_INTERFACE, chan, ulValue);
+	} else if ((attr & PIN_ATTR_TIMER) == PIN_ATTR_TIMER) {
+		// We use MCLK/2 as clock.
+		const uint32_t TC = VARIANT_MCK / 2 / PWM_WRITE_OUT_FREQUENCY;
+		// Map value to Timer ranges 0..RES => 0..TC
+		ulValue = ulValue * TC;
+		ulValue = ulValue / ((1<<PWM_WRITE_OUT_RESOLUTION)-1);
+		// Setup Timer for this pin
+		ETCChannel channel = g_APinDescription[ulPin].ulTCChannel;
+		static const uint32_t channelToChNo[] = { 0, 0, 1, 1, 2, 2, 0, 0, 1, 1, 2, 2, 0, 0, 1, 1, 2, 2 };
+		static const uint32_t channelToAB[]   = { 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0 };
+		static Tc *channelToTC[] = {
+			TC0, TC0, TC0, TC0, TC0, TC0,
+			TC1, TC1, TC1, TC1, TC1, TC1,
+			TC2, TC2, TC2, TC2, TC2, TC2 };
+		static const uint32_t channelToId[]   = { 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8 };
+		uint32_t chNo = channelToChNo[channel];
+		uint32_t chA  = channelToAB[channel];
+		Tc *chTC = channelToTC[channel];
+		uint32_t interfaceID = channelToId[channel];
+		if (!TCChanEnabled[interfaceID]) {
+			pmc_enable_periph_clk(TC_INTERFACE_ID + interfaceID);
+			TC_Configure(chTC, chNo,
+				TC_CMR_TCCLKS_TIMER_CLOCK1 |
+				TC_CMR_WAVE |			// Waveform mode
+				TC_CMR_WAVSEL_UP_RC |	// Counter running up and reset when equals to RC
+				TC_CMR_ACPA_CLEAR | TC_CMR_ACPC_CLEAR |
+				TC_CMR_BCPB_CLEAR | TC_CMR_BCPC_CLEAR |
+#ifdef WR_ONE_PERIOD_PWM
+				TC_CMR_EEVTEDG_RISING |	// External Event Edge Selection
+				TC_CMR_ENETRG |			// External Event Trigger Enable
+				WR_ZERO_CROSS_TC_CMR_EEVT // Set external events
+#else
+				TC_CMR_EEVT_XC0 		// Set external events from XC0 (this setup TIOB as output)
+#endif
+			);
+#ifdef WR_ONE_PERIOD_PWM
+			WR_ZERO_CROSS_TC_BMR_SET;
+		    PIO_SetPeripheral(g_APinDescription[PIN_PWM_ZERO_CROSS].pPort, WR_ZERO_CROSS_PERIPH, g_APinDescription[PIN_PWM_ZERO_CROSS].ulPin); // Set as input trigger
+#endif
+		    TC_SetRC(chTC, chNo, TC);
+		}
+		uint32_t cmr;
+		if(chA)	{
+			cmr = chTC->TC_CHANNEL[chNo].TC_CMR & ~(TC_CMR_ACPA_Msk | TC_CMR_ACPC_Msk | TC_CMR_AEEVT_Msk);
+			if(ulValue == 0) {
+				chTC->TC_CHANNEL[chNo].TC_CMR = cmr | TC_CMR_ACPA_SET | TC_CMR_ACPC_SET
+#ifdef WR_ONE_PERIOD_PWM
+												| TC_CMR_AEEVT_SET
+#endif
+																	;
+			} else {
+				TC_SetRA(chTC, chNo, ulValue);
+				chTC->TC_CHANNEL[chNo].TC_CMR = cmr | TC_CMR_ACPA_SET | TC_CMR_ACPC_CLEAR
+#ifdef WR_ONE_PERIOD_PWM
+												| TC_CMR_AEEVT_CLEAR
+#endif
+																	;
+			}
+		} else {
+			cmr = chTC->TC_CHANNEL[chNo].TC_CMR & ~(TC_CMR_BCPB_Msk | TC_CMR_BCPC_Msk | TC_CMR_BEEVT_Msk);
+			if(ulValue == 0) {
+				chTC->TC_CHANNEL[chNo].TC_CMR = cmr | TC_CMR_BCPB_SET | TC_CMR_BCPC_SET
+#ifdef WR_ONE_PERIOD_PWM
+												| TC_CMR_BEEVT_SET
+#endif
+																	;
+			} else {
+				TC_SetRB(chTC, chNo, ulValue);
+				chTC->TC_CHANNEL[chNo].TC_CMR = cmr | TC_CMR_BCPB_SET | TC_CMR_BCPC_CLEAR
+#ifdef WR_ONE_PERIOD_PWM
+												| TC_CMR_BEEVT_CLEAR
+#endif
+																	;
+			}
+		}
+		if ((g_pinStatus[ulPin] & 0xF) != PIN_STATUS_PWM) {
+			PIO_Configure(g_APinDescription[ulPin].pPort,
+					g_APinDescription[ulPin].ulPinType,
+					g_APinDescription[ulPin].ulPin,
+					g_APinDescription[ulPin].ulPinConfiguration);
+			g_pinStatus[ulPin] = (g_pinStatus[ulPin] & 0xF0) | PIN_STATUS_PWM;
+		}
+		if (!TCChanEnabled[interfaceID]) {
+			TC_Start(chTC, chNo);
+			TCChanEnabled[interfaceID] = 1;
+		}
+	}
+}
+
+#ifdef WATTROUTER
+void WR_Switch_Load(uint8_t idx, boolean On)
+{
+	int8_t pin = WR_Load_pins[idx];
+	if(pin < 0) { // HTTP
+		strcpy(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_RELAY_SW_1);
+		_itoa(abs(pin), Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1);
+		strcat(Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1, HTTP_MAP_RELAY_SW_2);
+		_itoa(On, Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1 + sizeof(HTTP_MAP_RELAY_SW_2)-1);
+		if(Send_HTTP_Request(HTTP_MAP_Server, Socket[MAIN_WEB_TASK].outBuf, 3) == 1) { // Ok?
+			goto xSwitched;
+		} else {
+			if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: Error set R%d\n", idx + 1);
+		}
+	} else {
+		digitalWriteDirect(pin, On ? WR_RELAY_LEVEL_ON : !WR_RELAY_LEVEL_ON);
+xSwitched:
+		if((WR_LoadRun[idx] > 0) != On) {
+			WR_SwitchTime[idx] = rtcSAM3X8.unixtime();
+			WR_LastSwitchTime = WR_SwitchTime[idx];
+		}
+		if((WR_LoadRun[idx] > 0) != On) WR_SwitchTime[idx] = rtcSAM3X8.unixtime();
+		WR_LoadRun[idx] = On ? WR.LoadPower[idx] : 0;
+		if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf_time("WR: R%d=>%d\n", idx + 1, On);
+	}
+}
+
+void WR_Change_Load_PWM(uint8_t idx, int16_t delta)
+{
+	int n = WR_LoadRun[idx] + delta;
+	if(n <= 0) n = 0; else if(n > WR.LoadPower[idx]) n = WR.LoadPower[idx];
+	uint32_t t = rtcSAM3X8.unixtime();
+	if(WR.PWM_FullPowerTime) {
+		if(n > 0) {
+			int max = int(WR.LoadPower[idx]) * WR.PWM_FullPowerLimit / 100;
+			if(n > max) {
+				if(WR_LoadRun[idx] <= max) {
+					if(t - WR_SwitchTime[idx] <= WR.PWM_FullPowerTime * 60) n = max; // Включаемся, но еще не остыли
+					else WR_SwitchTime[idx] = t;
+				} else if(WR_SwitchTime[idx] && t - WR_SwitchTime[idx] > WR.PWM_FullPowerTime * 60) n = max; // Перегрелись
+			} else if(n < max && WR_LoadRun[idx] > max) WR_SwitchTime[idx] = t;
+		} else if(WR_LoadRun[idx]) WR_SwitchTime[idx] = t;
+	} else if(WR_LoadRun[idx] != n) WR_SwitchTime[idx] = t;
+	if(n != WR_LoadRun[idx] || GETBIT(WR_Refresh, idx)) {
+		WR_LoadRun[idx] = n;
+		if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf_time("WR: P%d=%d\n", idx + 1, n);
+		PWM_Write(WR_Load_pins[idx], ((1<<PWM_WRITE_OUT_RESOLUTION)-1) - n * ((1<<PWM_WRITE_OUT_RESOLUTION)-1) / WR.LoadPower[idx]);
+	}
+}
+
+inline int16_t WR_Adjust_PWM_delta(uint8_t idx, int16_t delta)
+{
+	if(delta != 0) {
+		int16_t m = WR.LoadPower[idx] >> PWM_WRITE_OUT_RESOLUTION;
+		if(delta < 0) {
+			m = -m;
+			if(m < delta) return m;
+		} else if(m > delta) return m;
+	}
+	return delta;
+}
+#endif
+

@@ -74,7 +74,6 @@ uint32_t startSupcStatusReg;                        // Состояние при
 #endif
 
 // Глобальные переменные
-extern boolean set_time_NTP(void);   
 EthernetServer server1(80);                         // сервер
 EthernetUDP Udp;                                    // Для NTP сервера
 EthernetClient ethClient(W5200_SOCK_SYS);           // для MQTT
@@ -193,7 +192,7 @@ void vUpdateCommand(void *) __attribute__((naked));
 void vServiceHP(void *) __attribute__((naked));
 
 void setup() {
-	// 1. Инициализация SPI
+	// 1. Инициализация
 	// Баг разводки дуе (вероятность). Есть проблема с инициализацией spi.  Ручками прописываем
 	// https://groups.google.com/a/arduino.cc/forum/#!topic/developers/0PUzlnr7948
 	// http://forum.arduino.cc/index.php?topic=243778.0;nowap
@@ -222,7 +221,54 @@ void setup() {
 	Recover_I2C_bus();
 	delay(1);
 
-	// 2. Инициализация журнала и в нем последовательный порт
+	// Настройка сервисных выводов
+	pinMode(PIN_KEY1, INPUT_PULLUP);        // Кнопка 1
+	pinMode(PIN_BEEP, OUTPUT);              // Выход на пищалку
+	pinMode(PIN_LED_OK, OUTPUT);            // Выход на светодиод мигает 0.5 герца - ОК  с частотой 2 герца ошибка
+	digitalWriteDirect(PIN_BEEP,LOW);       // Выключить пищалку
+	digitalWriteDirect(PIN_LED_OK,HIGH);    // Выключить светодиод
+
+	// 2. Инициализация журнала
+	uint8_t b;
+	uint8_t ret = eepromI2C.read(I2C_COUNT_EEPROM, &b, 1);
+	if(ret == 0 && b != I2C_COUNT_EEPROM_HEADER && b != 0xFF) {
+#ifndef TEST_BOARD
+		if(b == 0xAA) {
+			if(!eepromI2C.read(I2C_SETTING_EEPROM + 2 + 1, &b, 1) && b < 147) goto xRewriteHeader;
+		}
+#endif
+		ret = 0xFF;
+	}
+#ifndef DEBUG
+	if(ret)
+#endif
+#ifndef DEBUG_NATIVE_USB
+	SerialDbg.begin(UART_SPEED);                   // Если надо инициализировать отладочный порт
+#endif
+	while(ret) {
+		SerialDbg.print("Wrong I2C EEPROM or setup, press KEY[D");
+		SerialDbg.print(PIN_KEY1);
+		SerialDbg.println("] to continue...");
+		if(!digitalReadDirect(PIN_KEY1)) {
+			WDT_Restart(WDT);
+#ifndef TEST_BOARD
+xRewriteHeader:
+#endif
+			b = I2C_COUNT_EEPROM_HEADER;
+			ret = eepromI2C.write(I2C_COUNT_EEPROM, &b, 1);
+			if(ret) {
+				SerialDbg.print("Error ");
+				SerialDbg.print(ret);
+				SerialDbg.println(" write to EEPROM!");
+			} else SerialDbg.println("Wait...");
+			while(1) ;
+		}
+		for(uint8_t i = 0; i < 1000 / TIME_LED_ERR; i++) {
+			digitalWriteDirect(PIN_BEEP, i & 1);
+			digitalWriteDirect(PIN_LED_OK, i & 1);
+			delay(TIME_LED_ERR);
+		}
+	}
 	journal.Init();
 #ifdef POWER_CONTROL
 	delay(200);  // Не понятно но без нее иногда на старте срабатывает вачдог.  возможно проблема с буфером
@@ -389,17 +435,11 @@ x_I2C_init_std_message:
 	journal.jprintf("2. Init %s main class . . .\n",(char*)nameHeatPump);
 	HP.initHeatPump();                           // Основной класс
 
-	// 5. Установка сервисных пинов
-
+	// 5. Проверка сброса сети
+	// Нажатие при включении - режим safeNetwork (настрока сети по умолчанию 192.168.0.177  шлюз 192.168.0.1, не спрашивает пароль на вход в веб морду)
 	journal.jprintf("3. Read safe Network key . . .\n");
-	pinMode(PIN_KEY1, INPUT);               // Кнопка 1, Нажатие при включении - режим safeNetwork (настрока сети по умолчанию 192.168.0.177  шлюз 192.168.0.1, не спрашивает пароль на вход в веб морду)
-	HP.safeNetwork=!digitalReadDirect(PIN_KEY1);
-	if (HP.safeNetwork)  journal.jprintf("Mode safeNetwork ON \n"); else journal.jprintf("Mode safeNetwork OFF \n");
-
-	pinMode(PIN_BEEP, OUTPUT);              // Выход на пищалку
-	pinMode(PIN_LED_OK, OUTPUT);            // Выход на светодиод мигает 0.5 герца - ОК  с частотой 2 герца ошибка
-	digitalWriteDirect(PIN_BEEP,LOW);       // Выключить пищалку
-	digitalWriteDirect(PIN_LED_OK,HIGH);    // Выключить светодиод
+	HP.safeNetwork = !digitalReadDirect(PIN_KEY1);
+	journal.jprintf("Mode safeNetwork %s\n", HP.safeNetwork ? "ON" : "OFF");
 
 	// 6. Чтение ЕЕПРОМ, надо раньше чем инициализация носителей веб морды, что бы знать откуда грузить
 	journal.jprintf("4. Load data from I2C memory . . .\n");
@@ -658,7 +698,7 @@ extern "C" void vApplicationIdleHook(void)  // FreeRTOS expects C linkage
 void vWeb0(void *)
 { //const char *pcTaskName = "Web server is running\r\n";
 	static unsigned long timeResetW5200 = 0;
-	static unsigned long thisTime;
+	static unsigned long thisTime, FreqTime;
 	static unsigned long resW5200 = 0;
 	static unsigned long iniW5200 = 0;
 	static unsigned long pingt = 0;
@@ -667,27 +707,239 @@ void vWeb0(void *)
 	static unsigned long narmont=0;
 	static unsigned long mqttt=0;
 #endif
-	static boolean active = false;  // ФЛАГ Одно дополнительное действие за один цикл - распределяем нагрузку, если действие проделано то active = false и новый цикл
 	static boolean network_last_link = true;
+#ifdef WATTROUTER
+	memset(WR_LoadRun, 0, sizeof(WR_LoadRun));
+	memset(WR_SwitchTime, 0, sizeof(WR_SwitchTime));
+	for(uint8_t i = 0; i < WR_NumLoads; i++) {
+		if(WR_Load_pins[i] > 0) pinMode(WR_Load_pins[i], OUTPUT);
+	}
+	journal.jprintf("WattRouter running\n");
+#endif
 
-	HP.timeNTP = thisTime = xTaskGetTickCount();        // В первый момент не обновляем
+	HP.timeNTP = thisTime = FreqTime = xTaskGetTickCount();        // В первый момент не обновляем
 	for(;;)
 	{
-		WEB_STORE_DEBUG_INFO(1);
-		web_server(MAIN_WEB_TASK);
-		WEB_STORE_DEBUG_INFO(2);
-		active = true;                                                         // Можно работать в этом цикле (дополнительная нагрузка на поток)
-		vTaskDelay(TIME_WEB_SERVER / portTICK_PERIOD_MS); // задержка чтения уменьшаем загрузку процессора
+		#define WEB_SERVER_MAIN_TASK() {\
+			/*WEB_STORE_DEBUG_INFO(1);*/\
+			web_server(MAIN_WEB_TASK);\
+			/*WEB_STORE_DEBUG_INFO(2);*/\
+			vTaskDelay(TIME_WEB_SERVER / portTICK_PERIOD_MS);\
+		}
+		WEB_SERVER_MAIN_TASK();
 
 		// СЕРВИС: Этот поток работает на любых настройках, по этому сюда ставим работу с сетью
-		HP.message.sendMessage();                                            // Отработать отсылку сообщений (внутри скрыта задержка после включения)
-		active = HP.message.dnsUpdate();                                     // Обновить адреса через dns если надо, dnsUpdate() возвращает true если обновления не было
-#ifdef MQTT
-		if(active) active=HP.clMQTT.dnsUpdate();                             // Обновить адреса через dns если надо для MQTT если обновления не было то возвращает true
+		boolean active = true;   // ФЛАГ Одно дополнительное действие за один цикл - распределяем нагрузку, если действие проделано то active = false и новый цикл
+		if(xTaskGetTickCount() - FreqTime > WEB0_FREQUENT_JOB_PERIOD) {
+			FreqTime = xTaskGetTickCount();
+			active = HP.message.sendMessage();   // Отработать отсылку сообщений (внутри скрыта задержка после включения)
+#ifdef HTTP_LowConsumeRequest
+			if(active) {
+				if(GETBIT(HP.Option.flags, fBackupPower) != Request_LowConsume || (RepeatLowConsumeRequest && --RepeatLowConsumeRequest == 0)) {
+					strcpy(Socket[MAIN_WEB_TASK].outBuf, HTTP_LowConsumeRequest);
+					_itoa(GETBIT(HP.Option.flags, fBackupPower), Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_LowConsumeRequest)-1);
+					int err = Send_HTTP_Request(HTTP_LowConsumeServer, Socket[MAIN_WEB_TASK].outBuf, false);
+					if(err != -2000000000) {
+						if(err > -2000000000) Request_LowConsume = GETBIT(HP.Option.flags, fBackupPower);
+						else RepeatLowConsumeRequest = (uint16_t)(HTTP_REQUEST_ERR_REPEAT * 1000 / WEB0_OTHER_JOB_PERIOD + 1);
+					}
+					active = false;
+				}
+			}
 #endif
+#ifdef WATTROUTER
+			if(!active) {
+				WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+				active = true;
+			}
+			if((GETBIT(WR.Flags, WR_fActive) || WR.PWM_FullPowerTime || WR_Refresh) /*&& HP.get_State() == pWORK_HP*/) {
+				while(1) {
+					boolean nopwr = (GETBIT(HP.Option.flags, fBackupPower) || HP.NO_Power) && GETBIT(WR.Flags, WR_fActive); // Выключить все
+					if(nopwr) WR_Refresh |= WR.Loads;
+					if(WR_Refresh || WR.PWM_FullPowerTime) {
+						for(uint8_t i = 0; i < WR_NumLoads; i++) {
+							//if(!GETBIT(WR.Loads, i)) continue;
+							if(GETBIT(WR.Loads_PWM, i)) {
+								if(nopwr) WR_Change_Load_PWM(i, -32768);
+								else if(GETBIT(WR_Refresh, i) || (WR.PWM_FullPowerTime && WR_LoadRun[i] && rtcSAM3X8.unixtime() - WR_SwitchTime[i] > WR.PWM_FullPowerTime * 60)) {
+									WR_Change_Load_PWM(i, 0);
+								}
+							} else if(GETBIT(WR_Refresh, i)) {
+								WR_Switch_Load(i, nopwr ? 0 : WR_LoadRun[i] ? true : false);
+								if(WR_Load_pins[i] < 0) {
+									WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+									active = false;
+								}
+							}
+						}
+						WR_Refresh = false;
+					}
+					if(!active || !GETBIT(WR.Flags, WR_fActive)) break;
+#ifdef WR_Load_pins_Boiler_INDEX
+					if((WR.Loads & (1<<WR_Load_pins_Boiler_INDEX)) && HP.sTemp[TBOILER].get_Temp() > HP.Prof.Boiler.WR_TempTarget) { // Нагрели
+						int16_t curr = WR_LoadRun[WR_Load_pins_Boiler_INDEX];
+						if(curr) {
+							active = false;
+							if(GETBIT(WR.Loads_PWM, WR_Load_pins_Boiler_INDEX)) WR_Change_Load_PWM(WR_Load_pins_Boiler_INDEX, -32768);
+							else WR_Switch_Load(WR_Load_pins_Boiler_INDEX, 0);
+							if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf_time("WR: Boiler OK\n");
+							// Компенсируем
+							for(uint8_t i = 0; i < WR_NumLoads; i++) {
+								if(i == WR_Load_pins_Boiler_INDEX || !GETBIT(WR.Loads, i) || WR_LoadRun[i] == WR.LoadPower[i]) continue;
+								if(GETBIT(WR.Loads_PWM, i)) {
+									int16_t chg = WR.LoadPower[i] - WR_LoadRun[i];
+									if(chg > curr) chg = curr;
+									WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+									WR_Change_Load_PWM(i, chg);
+									if(curr == chg) break;
+									curr -= chg;
+								} else {
+									if(WR.LoadPower[i] - WR.LoadHist > curr || (WR_SwitchTime[i] && rtcSAM3X8.unixtime() - WR_SwitchTime[i] <= WR.TurnOnPause))
+										continue;
+									WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+									WR_Switch_Load(i, 1);
+									curr -= WR.LoadPower[i];
+								}
+							}
+							break;
+						}
+					}
+#endif
+
+#ifndef WR_CurrentSensor_4_20mA
+					// HTTP power meter
+					active = false;
+					int err = Send_HTTP_Request(HTTP_MAP_Server, HTTP_MAP_Read_MAP, 1);
+					if(err) {
+						if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: HTTP request Error %d\n", err);
+						break;
+					}
+					// todo: check "_MODE" >= 3
+					char *fld = strstr(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_JSON_PNET_calc);
+					if(!fld) {
+						if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: HTTP json wrong!\n");
+						break;
+					}
+					char *fld2 = strchr(fld += sizeof(HTTP_MAP_JSON_PNET_calc) + 1, '"');
+					if(!fld2) break;
+					*(fld2 - 2) = '\0' ; // integer part "0.0"
+					int16_t pnet = atoi(fld);
+#else
+					HP.sADC[IWR].Read();
+					int16_t pnet = HP.sADC[IWR].get_Value();
+#endif
+					//
+					if(WR_Pnet != -32768 && abs(pnet - WR_Pnet) > WR_SKIP_EXTREMUM) {
+						WR_Pnet = -32768;
+						if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf("WR: Skip %d\n", pnet);
+					} else {
+#ifdef WR_PNET_AVERAGE
+						if(WR_Pnet_avg_init) { // first time
+							for(uint8_t i = 0; i < sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]); i++) WR_Pnet_avg[i] = pnet;
+							WR_Pnet_avg_sum = pnet * int32_t(sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]));
+							WR_Pnet_avg_init = false;
+						} else {
+							WR_Pnet_avg_sum = WR_Pnet_avg_sum - WR_Pnet_avg[WR_Pnet_avg_idx] + pnet;
+							WR_Pnet_avg[WR_Pnet_avg_idx] = pnet;
+							if(WR_Pnet_avg_idx < sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]) - 1) WR_Pnet_avg_idx++; else WR_Pnet_avg_idx = 0;
+						}
+						WR_Pnet = WR_Pnet_avg_sum / int32_t(sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]));
+#else
+						WR_Pnet = pnet;
+#endif
+						if(GETBIT(WR.Flags, WR_fLogFull)) {
+							journal.printf("WR: Pnet=%d(%d)\n", WR_Pnet, pnet);
+						}
+						// проверка перегрузки
+						pnet = WR_Pnet - WR.MinNetLoad;
+						if(pnet > 0) { // Потребление из сети больше - уменьшаем нагрузку
+							uint32_t t = rtcSAM3X8.unixtime();
+							uint8_t reserv = 255;
+							for(int8_t i = WR_NumLoads-1; i >= 0; i--) {
+								if(!GETBIT(WR.Loads, i) || WR_LoadRun[i] == 0) continue;
+								if(GETBIT(WR.Loads_PWM, i)) {
+									int16_t chg = WR_LoadRun[i];
+									if(chg > pnet) chg = pnet;
+									WR_Change_Load_PWM(i, WR_Adjust_PWM_delta(i, -chg));
+									if(pnet == chg) break;
+									pnet -= chg;
+								} else {
+									if(WR_LastSwitchTime && t - WR_LastSwitchTime <= WR.NextSwitchPause) continue;
+									if(WR_SwitchTime[i] && t - WR_SwitchTime[i] <= WR.TurnOnMinTime) continue;
+									if(pnet - WR.LoadHist >= WR_LoadRun[i]) {
+#ifndef WR_CurrentSensor_4_20mA
+										if(!active) WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+#endif
+										WR_Switch_Load(i, 0);
+#ifndef WR_CurrentSensor_4_20mA
+										if(WR_Load_pins[i] < 0) active = false;
+#endif
+										break;
+									} else if(reserv == 255) reserv = i;
+								}
+							}
+							if(reserv != 255 && pnet > WR.LoadHist) { // еще не все
+#ifndef WR_CurrentSensor_4_20mA
+								if(!active) WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+#endif
+								WR_Switch_Load(reserv, 0);
+							}
+						} else { // Увеличиваем нагрузку
+							for(int8_t i = 0; i < WR_NumLoads; i++) {
+								if(!GETBIT(WR.Loads, i) || WR_LoadRun[i] == WR.LoadPower[i]) continue;
+#ifdef WR_Load_pins_Boiler_INDEX
+								if(i == WR_Load_pins_Boiler_INDEX && HP.sTemp[TBOILER].get_Temp() > HP.Prof.Boiler.WR_TempTarget - HP.Prof.Boiler.dAddHeat) continue;
+#endif
+								if(GETBIT(WR.Loads_PWM, i)) {
+									int16_t chg = WR.LoadPower[i] - WR_LoadRun[i];
+									if(chg > WR.LoadAdd) chg = WR.LoadAdd;
+									WR_Change_Load_PWM(i, WR_Adjust_PWM_delta(i, chg));
+									break;
+								} else {
+									uint32_t t = rtcSAM3X8.unixtime();
+									if(WR_LastSwitchTime && t - WR_LastSwitchTime <= WR.NextSwitchPause) continue;
+									if(WR_SwitchTime[i] && t - WR_SwitchTime[i] <= WR.TurnOnPause) continue;
+#ifndef WR_CurrentSensor_4_20mA
+									if(!active) WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+#endif
+									WR_Switch_Load(i, 1);
+#ifndef WR_CurrentSensor_4_20mA
+									if(WR_Load_pins[i] < 0) active = false;
+#endif
+									break;
+								}
+							}
+						}
+					}
+					break;
+				}
+//				} else { // Нагрузка включена
+//					while(1) {
+//						// HTTP MPPT
+//						int err = Send_HTTP_Request(HTTP_MAP_Server, HTTP_MAP_Read_MPPT, 1);
+//						if(err) break;
+//						char *fld = strstr(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_JSON_Sign);
+//						if(!fld) break;
+//						if(*(fld + sizeof(HTTP_MAP_JSON_PNET_calc) + 1) != '-') break; // Нет свободной энергии
+//						if(GETBIT(HP.Option.flags, fBackupPower) || HP.NO_Power) break; // Нет электричества
+//						WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+//						goto xWR_AddPower;
+//					}
+//				}
+			}
+#endif
+		}
 		if(xTaskGetTickCount() - thisTime > WEB0_OTHER_JOB_PERIOD)
 		{
+			if(!active) {
+				WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+				active = true;
+			}
 			thisTime = xTaskGetTickCount();                                      // Запомнить тики
+			if(active) active = HP.message.dnsUpdate();                                     // Обновить адреса через dns если надо, dnsUpdate() возвращает true если обновления не было
+#ifdef MQTT
+			if(active) active=HP.clMQTT.dnsUpdate();                             // Обновить адреса через dns если надо для MQTT если обновления не было то возвращает true
+#endif
 			// 1. Проверка захваченого семафора сети ожидаем  3 времен W5200_TIME_WAIT если мютекса не получаем то сбрасывае мютекс
 			if(SemaphoreTake(xWebThreadSemaphore, ((3 + (fWebUploadingFilesTo != 0) * 30) * W5200_TIME_WAIT / portTICK_PERIOD_MS)) == pdFALSE) {
 				SemaphoreGive(xWebThreadSemaphore);
@@ -745,7 +997,7 @@ void vWeb0(void *)
 			{
 				WEB_STORE_DEBUG_INFO(6);
 				HP.timeNTP = thisTime;
-				set_time_NTP();                                                 // Обновить время
+				HP.updateDateTime(set_time_NTP());                                                 // Обновить время
 				active = false;
 			}
 			// 6. ping сервера если это необходимо
@@ -755,21 +1007,6 @@ void vWeb0(void *)
 				pingServer();
 				active = false;
 			}
-
-#ifdef HTTP_LowConsumeRequest
-			if(active) {
-				if(GETBIT(HP.Option.flags, fBackupPower) != Request_LowConsume || (RepeatLowConsumeRequest && --RepeatLowConsumeRequest == 0)) {
-					strcpy(Socket[MAIN_WEB_TASK].outBuf + HTTP_REQ_BUFFER_SIZE, HTTP_LowConsumeRequest);
-					_itoa(GETBIT(HP.Option.flags, fBackupPower), Socket[MAIN_WEB_TASK].outBuf + HTTP_REQ_BUFFER_SIZE);
-					int err = Send_HTTP_Request(Socket[MAIN_WEB_TASK].outBuf + HTTP_REQ_BUFFER_SIZE, false);
-					if(err != -2000000000) {
-						if(err > -2000000000) Request_LowConsume = GETBIT(HP.Option.flags, fBackupPower);
-						else RepeatLowConsumeRequest = (uint16_t)(HTTP_REQUEST_ERR_REPEAT * 1000 / WEB0_OTHER_JOB_PERIOD + 1);
-					}
-					active = false;
-				}
-			}
-#endif
 
 #ifdef MQTT                                     // признак использования MQTT
 			// 7. Отправка нанародный мониторинг
@@ -863,12 +1100,14 @@ void vReadSensor(void *)
 #endif
 #endif     // не DEMO
 		}
+#ifndef IWR
 		for(i = 0; i < ANUMBER; i++) HP.sADC[i].Read();                  // Прочитать данные с датчиков давления
+#else
+		for(i = 0; i < ANUMBER - 1; i++) HP.sADC[i].Read();              // Прочитать данные с датчиков давления, кроме последнего
+#endif
 		for(i = 0; i < INUMBER; i++) HP.sInput[i].Read();                // Прочитать данные сухой контакт
 #ifdef SGENERATOR
-		if(GETBIT(HP.Option.flags2, f2BackupPowerAuto)) {
-			HP.Option.flags = (HP.Option.flags & ~(1<<fBackupPower)) | ((HP.sInput[SGENERATOR].get_Input() == HP.sInput[SGENERATOR].get_alarmInput())<<fBackupPower);
-		}
+		if(GETBIT(HP.Option.flags2, f2BackupPowerAuto)) HP.check_fBackupPower();
 #endif
 #ifdef AUTO_START_GENERATOR
 		if(GETBIT(HP.Option.flags, fBackupPower) && HP.is_compressor_on()) HP.dRelay[RGEN].set_ON(); // Не даем генератору выключиться
