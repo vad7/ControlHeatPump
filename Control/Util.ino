@@ -1108,11 +1108,7 @@ void WR_Switch_Load(uint8_t idx, boolean On)
 	} else {
 		digitalWriteDirect(pin, On ? WR_RELAY_LEVEL_ON : !WR_RELAY_LEVEL_ON);
 xSwitched:
-		if((WR_LoadRun[idx] > 0) != On) {
-			WR_SwitchTime[idx] = rtcSAM3X8.unixtime();
-			WR_LastSwitchTime = WR_SwitchTime[idx];
-		}
-		if((WR_LoadRun[idx] > 0) != On) WR_SwitchTime[idx] = rtcSAM3X8.unixtime();
+		if((WR_LoadRun[idx] > 0) != On) WR_SwitchTime[idx] = WR_LastSwitchTime = rtcSAM3X8.unixtime();
 		WR_LoadRun[idx] = On ? WR.LoadPower[idx] : 0;
 		if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf_time("WR: R%d=>%d\n", idx + 1, On);
 	}
@@ -1152,5 +1148,25 @@ inline int16_t WR_Adjust_PWM_delta(uint8_t idx, int16_t delta)
 	}
 	return delta;
 }
+
+#ifdef HTTP_MAP_Read_MPPT
+// Проверка наличия свободного солнца
+// 0 - Oшибка, 1 - Нет свободной энергии, 2 - Нужна пауза, 3 - Есть свободная энергия
+uint8_t WR_Check_MPPT(void)
+{
+	int err = Send_HTTP_Request(HTTP_MAP_Server, HTTP_MAP_Read_MPPT, 1);
+	if(err) {
+		if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: MPPT request Error %d\n", err);
+		return 0;
+	}
+	char *fld = strstr(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_JSON_Mode);
+	if(!fld) return 0;
+	if(*(fld + sizeof(HTTP_MAP_JSON_Mode) + 1) == 'S') return 2;
+	fld = strstr(fld, HTTP_MAP_JSON_Sign);
+	if(fld && *(fld + sizeof(HTTP_MAP_JSON_Sign) + 1) == '-') return 3;
+	return 1;
+}
+#endif
+
 #endif
 

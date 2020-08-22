@@ -237,9 +237,7 @@ xUNAUTHORIZED:
 		//	vTaskDelay(TIME_WEB_SERVER / portTICK_PERIOD_MS); // задержка чтения уменьшаем загрузку процессора
 			taskYIELD();
 		} // end if (client)
-#ifdef FAST_LIB  // Переделка
 	}  // for (int sock = 0; sock < W5200_SOCK_SYS; sock++)
-#endif
 	SemaphoreGive (xWebThreadSemaphore);              // Семафор отдать
 }
 
@@ -271,7 +269,7 @@ void readFileSD(char *filename, uint8_t thread)
 		filename += 8;
 		if(strcmp(filename, ".txt") == 0) {	get_txtSettings(thread); return; }
 		else if(strcmp(filename, ".bin") == 0) {
-			if(!get_binSettings(thread)) journal.jprintf("Error download %s\n", filename);
+			if(!get_binSettings(thread)) journal.jprintf("Error download %s%s\n", "settings", filename);
 			return;
 		}
 		filename -= 8;
@@ -2011,41 +2009,43 @@ void parserGET(uint8_t thread, int8_t )
 			// get_modbus_val(N:D:X), set_modbus_val(N:D:X=YYY)
 			// N - номер устройства, D - тип данных, X - адрес, Y - новое значение
 			if(strncmp(str+1, "et_modbus_", 10) == 0) {
-				WEB_STORE_DEBUG_INFO(38);
+				STORE_DEBUG_INFO(38);
 				if((y = strchr(x, ':'))) {
 					*y++ = '\0';
 					uint8_t id = atoi(x);
-					uint16_t par = atoi(y + 2); // Передается нумерация регистров с 1, а в modbus с 0
-					if(par--) {
-						i = OK;
-						if(strncmp(str, "set", 3) == 0) {
-							if(*y == 'w') i = Modbus.writeHoldingRegisters16(id, par, strtol(z, NULL, 0));
-							else if(*y == 'l') i = Modbus.writeHoldingRegisters32(id, par, strtol(z, NULL, 0));
-							else if(*y == 'f') i = Modbus.writeHoldingRegistersFloat(id, par, strtol(z, NULL, 0));
-							else if(*y == 'c') i = Modbus.writeSingleCoil(id, par, atoi(z));
-							else goto x_FunctionNotFound;
-							_delay(MODBUS_TIME_TRANSMISION * 10); // Задержка перед чтением
-						} else if(strncmp(str, "get", 3) == 0) {
+					uint16_t par = atoi(y + 2);
+					if(id == FC_MODBUS_ADR && par) par--;	// В документации частотника нумерация регистров с 1, а в Modbus с 0
+					i = OK;
+					if(strncmp(str, "set", 3) == 0) {
+						// strtol - NO REENTRANT FUNCTION!
+						if(*y == 'h') i = Modbus.writeHoldingRegisters16(id, par, strtol(z, NULL, 0)); // 1 register (int16).
+						//else if(*y == 'u') i = Modbus.writeHoldingRegisters32(id, par, strtol(z, NULL, 0)); // 2 registers (int32).
+						else if(*y == 'f') i = Modbus.writeHoldingRegistersFloat(id, par, strtol(z, NULL, 0)); // 2 registers (float).
+						else if(*y == 'c') i = Modbus.writeSingleCoil(id, par, atoi(z));	// coil
+						else goto x_FunctionNotFound;
+						_delay(MODBUS_TIME_TRANSMISION * 10); // Задержка перед чтением
+					} else if(strncmp(str, "get", 3) == 0) {
+					} else goto x_FunctionNotFound;
+					if(i == OK) {
+						if(*y == 'w') {
+							if((i = Modbus.readInputRegisters16(id, par, &par)) == OK) _itoa(par, strReturn);
+						} else if(*y == 'l') {
+							if((i = Modbus.readInputRegisters32(id, par, (uint32_t *)&l_i32)) == OK) _itoa(l_i32, strReturn);
+						} else if(*y == 'i') {
+							if((i = Modbus.readInputRegistersFloat(id, par, &pm)) == OK) _ftoa(strReturn, pm, 2);
+						} else if(*y == 'h') {
+							if((i = Modbus.readHoldingRegisters16(id, par, &par)) == OK) _itoa(par, strReturn);
+						} else if(*y == 'f') {
+							if((i = Modbus.readHoldingRegistersFloat(id, par, &pm)) == OK) _ftoa(strReturn, pm, 2);
+						} else if(*y == 'c') {
+							if((i = Modbus.readCoil(id, par, (boolean *)&par)) == OK) _itoa(par, strReturn);
 						} else goto x_FunctionNotFound;
-						if(i == OK) {
-							if(*y == 'w') {
-								if((i = Modbus.readHoldingRegisters16(id, par, &par)) == OK) _itoa(par, strReturn);
-							} else if(*y == 'l') {
-								if((i = Modbus.readHoldingRegisters32(id, par, (uint32_t *)&l_i32)) == OK) _itoa(l_i32, strReturn);
-							} else if(*y == 'i') {
-								if((i = Modbus.readInputRegistersFloat(id, par, &pm)) == OK) _ftoa(strReturn, pm, 3);
-							} else if(*y == 'f') {
-								if((i = Modbus.readHoldingRegistersFloat(id, par, &pm)) == OK) _ftoa(strReturn, pm, 3);
-							} else if(*y == 'c') {
-								if((i = Modbus.readCoil(id, par, (boolean *)&par)) == OK) _itoa(par, strReturn);
-							} else goto x_FunctionNotFound;
-						}
-						if(i != OK) {
-							strcat(strReturn, "E"); _itoa(i, strReturn);
-						}
-						ADD_WEBDELIM(strReturn);
-						continue;
 					}
+					if(i != OK) {
+						strcat(strReturn, "E"); _itoa(i, strReturn);
+					}
+					ADD_WEBDELIM(strReturn);
+					continue;
 				}
 			}
 
@@ -2316,10 +2316,11 @@ x_get_aTemp:
 								int16_t val = pm;
 								if(GETBIT(WR.Loads_PWM, p)) WR_Change_Load_PWM(p, val - WR_LoadRun[p]);
 								else {
-									if(WR_Load_pins[i] < 0) { // HTTP
-										if(val < 0) val = 0; else if(val > WR.LoadPower[p]) val = WR.LoadPower[p];
-										WR_LoadRun[p] = val;
+									if(WR_Load_pins[p] < 0) { // HTTP
+										if(val < 0) val = 0; else if(val > 0) val = WR.LoadPower[p];
 										WR_Refresh |= (1<<p);
+										WR_LoadRun[p] = val;
+										WR_SwitchTime[p] = WR_LastSwitchTime = rtcSAM3X8.unixtime();
 									} else WR_Switch_Load(p, val > 0);
 								}
 							}
@@ -2838,21 +2839,22 @@ xLenErr:
 		pStart=(byte*)strstr((char*) ptr, HEADER_BIN);    // Поиск заголовка
 		if(pStart == NULL) {              // Заголовок не найден
 			journal.jprintf("Upload: Wrong save format: %s!\n", nameFile);
+			if(HP.get_NetworkFlags() & (1<<fWebFullLog)) journal.jprintf("%s\n\n", ptr);
 			return pSETTINGS_ERR;
 		}
-		len=pStart+sizeof(HEADER_BIN) - (byte*) Socket[thread].inBuf-1;         // размер текстового заголовка в буфере до окончания HEADER_BIN, дальше идут бинарные данные
+		len=pStart+sizeof(HEADER_BIN)-1 - (byte*) Socket[thread].inBuf;         // размер текстового заголовка в буфере до окончания HEADER_BIN, дальше идут бинарные данные
 		buf_len = size - len;                                                   // определяем размер бинарных данных в первом пакете 
 		memcpy(Socket[thread].outBuf, pStart+sizeof(HEADER_BIN)-1, buf_len);    // копируем бинарные данные в буфер, без заголовка!
-	    lenFile=lenFile-len;                                                    // корректируем длину файла на длину заголовка (только бинарные данные)
-		while(buf_len < lenFile)  // Чтение остальных бинарных данных по сети
+		while(1)  // Чтение остальных бинарных данных по сети
 		{
-			for(uint8_t i=0;i<20;i++) if(!Socket[thread].client.available()) _delay(1);else break; // ждем получние пакета до 20 мсек (может быть плохая связь)
+			for(uint8_t i = 0; i < 255; i++) {
+				if(!Socket[thread].client.available()) _delay(1); else break; // ждем получние пакета до 20 мсек (может быть плохая связь)
+			}
 			if(!Socket[thread].client.available()) break;                                          // пакета нет - выходим
 			len = Socket[thread].client.get_ReceivedSizeRX();                                      // получить длину входного пакета
-			if(len > W5200_MAX_LEN - 1) len = W5200_MAX_LEN - 1;                                   // Ограничить размером в максимальный размер пакета w5200
-			Socket[thread].client.read(Socket[thread].inBuf, len);                                 // прочитать буфер
-			if(buf_len + len >= (int32_t) sizeof(Socket[thread].outBuf)) return pSETTINGS_MEM;     // проверить длину если не влезает то выходим
-			memcpy(Socket[thread].outBuf + buf_len, Socket[thread].inBuf, len);                    // Добавить пакет в буфер
+			if(len > W5200_MAX_LEN) len = W5200_MAX_LEN;                                   		// Ограничить размером в максимальный размер пакета w5200
+			if(buf_len + len > (int32_t)sizeof(Socket[thread].outBuf)) return pSETTINGS_MEM;     // проверить длину если не влезает то выходим
+			Socket[thread].client.read((uint8_t*)Socket[thread].outBuf + buf_len, len);            // прочитать буфер
 			buf_len = buf_len + len;                                                               // определить размер данных
 		}
 	    ptr = (byte*) Socket[thread].outBuf;     

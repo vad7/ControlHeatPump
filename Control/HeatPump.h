@@ -114,6 +114,9 @@ uint8_t Request_LowConsume = 0xFF;
 #define  WR_fLoadMask			((1<<WR_NumLoads)-1)
 #define  WR_fTYPE				uint8_t
 int16_t  WR_Pnet = -32768;
+#ifdef WR_PowerMeter_Modbus
+volatile int32_t  WR_PowerMeter_Power = 0;
+#endif
 #ifdef WR_PNET_AVERAGE
 int16_t  WR_Pnet_avg[WR_PNET_AVERAGE];
 uint8_t  WR_Pnet_avg_idx = 0;
@@ -124,6 +127,8 @@ WR_fTYPE WR_Refresh = 0;
 int16_t  WR_LoadRun[WR_NumLoads];
 uint32_t WR_SwitchTime[WR_NumLoads];
 uint32_t WR_LastSwitchTime = 0;
+uint8_t  WR_TestLoadStatus = 0; 		// >1 - идет тестирование нагрузки
+uint8_t  WR_TestLoadIndex;
 struct {
 	WR_fTYPE Loads;						// Биты активирования нагрузки
 	WR_fTYPE Loads_PWM;					// Биты нагрузки PWM

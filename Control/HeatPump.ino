@@ -1150,7 +1150,10 @@ boolean HeatPump::set_optionHP(char *var, float x)
 		return true;
 	} else if(strcmp(var,option_WR_fActive)==0) {
 		WR.Flags = (WR.Flags & ~(1<<WR_fActive)) | ((n!=0)<<WR_fActive);
-		if(n != 0) WR_Pnet_avg_init = true; else WR_Refresh = true;
+		if(n == 0) WR_Refresh = true;
+#ifdef WR_PNET_AVERAGE
+		else WR_Pnet_avg_init = true;
+#endif
 		return true;
 	}
 #endif
@@ -1275,6 +1278,7 @@ void HeatPump::get_listChart(char* ret, const char *delimiter)
 			strcat(ret, sADC[ChartsModSetup[index].number].get_note());
 			strcat(ret, ", °C");
 		} else if(ChartsModSetup[index].object == STATS_OBJ_Flow) strcat(ret, sFrequency[ChartsModSetup[index].number].get_note());
+		else strcat(ret, STATS_OBJ_names[ChartsModSetup[index].object]);
 		strcat(ret, delimiter);
 	}
 	for(uint8_t index = 0; index < sizeof(ChartsConstSetup) / sizeof(ChartsConstSetup[0]); index++) {
@@ -1326,6 +1330,13 @@ void  HeatPump::updateChart()
 		else if(ChartsModSetup[i].object == STATS_OBJ_Press) Charts[i].add_Point(sADC[ChartsModSetup[i].number].get_Value());
 		else if(ChartsModSetup[i].object == STATS_OBJ_PressTemp) Charts[i].add_Point(PressToTemp(ChartsModSetup[i].number));
 		else if(ChartsModSetup[i].object == STATS_OBJ_Flow) Charts[i].add_Point(sFrequency[ChartsModSetup[i].number].get_Value() / 10);
+#ifdef WATTROUTER
+#ifdef WR_PowerMeter_Modbus
+		else if(ChartsModSetup[i].object == STATS_OBJ_WattRouter) Charts[i].add_Point(WR_PowerMeter_Power / 10);
+#else
+		else if(ChartsModSetup[i].object == STATS_OBJ_WattRouter) Charts[i].add_Point(WR_Pnet);
+#endif
+#endif
 	}
 	for(uint8_t i = 0; i < sizeof(ChartsConstSetup) / sizeof(ChartsConstSetup[0]); i++) {
 		uint8_t j = sizeof(ChartsModSetup) / sizeof(ChartsModSetup[0]) + i;
@@ -1394,6 +1405,9 @@ void HeatPump::get_Chart(int index, char *str)
 		if(Chart_Flow_FLOWCON && Chart_Temp_TCONING && Chart_Temp_TCONOUTG) Charts[Chart_Flow_FLOWCON].get_PointsStrPower(str, &Charts[Chart_Temp_TCONING], &Charts[Chart_Temp_TCONOUTG], sFrequency[FLOWCON].get_Capacity());
 		break;
 #endif
+	case STATS_OBJ_WattRouter:
+		Charts[index].get_PointsStr(str);
+		break;
 	default:
 		Charts[index].get_PointsStrDiv100(str);
 	}
