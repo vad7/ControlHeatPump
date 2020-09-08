@@ -114,6 +114,15 @@ boolean parseIPAddress(const char* str, char sep, IPAddress &ip)
  if (i<4-1) return false; else { ip=tmp;return true; }  
 }
 
+// Замена символа в строке
+void str_replace(char *str, char find, char replace)
+{
+	while(*str) {
+		if(*str == find) *str = replace;
+		str++;
+	}
+}
+
 ///////////////////////////////////////////////////////////////////////////////////
 // Функции ниже использовать только в WebServer или с семафором xWebThreadSemaphore!
 char _buf[20];
@@ -1030,7 +1039,7 @@ void PWM_Write(uint32_t ulPin, uint32_t ulValue) {
 				TC_CMR_ACPA_CLEAR | TC_CMR_ACPC_CLEAR |
 				TC_CMR_BCPB_CLEAR | TC_CMR_BCPC_CLEAR |
 #ifdef WR_ONE_PERIOD_PWM
-				TC_CMR_EEVTEDG_RISING |	// External Event Edge Selection
+				WR_ZERO_CROSS_EDGE |	// External Event Edge Selection
 				TC_CMR_ENETRG |			// External Event Trigger Enable
 				WR_ZERO_CROSS_TC_CMR_EEVT // Set external events
 #else
@@ -1133,7 +1142,15 @@ void WR_Change_Load_PWM(uint8_t idx, int16_t delta)
 	if(n != WR_LoadRun[idx] || GETBIT(WR_Refresh, idx)) {
 		WR_LoadRun[idx] = n;
 		if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf_time("WR: P%d=%d\n", idx + 1, n);
+#ifdef PWM_ACCURATE_POWER
+		n = n * (sizeof(PWM_POWER_ARRAY)/sizeof(PWM_POWER_ARRAY[0])-1)*10 / WR.LoadPower[idx]; // 0..100
+		int r = n % 10;
+		int val = PWM_POWER_ARRAY[n /= 10];
+		if(n < (int)(sizeof(PWM_POWER_ARRAY)/sizeof(PWM_POWER_ARRAY[0]))-1) val += (PWM_POWER_ARRAY[n + 1] - val) * r / 10;
+		PWM_Write(WR_Load_pins[idx], val);
+#else
 		PWM_Write(WR_Load_pins[idx], ((1<<PWM_WRITE_OUT_RESOLUTION)-1) - n * ((1<<PWM_WRITE_OUT_RESOLUTION)-1) / WR.LoadPower[idx]);
+#endif
 	}
 }
 
@@ -1165,6 +1182,107 @@ uint8_t WR_Check_MPPT(void)
 	fld = strstr(fld, HTTP_MAP_JSON_Sign);
 	if(fld && *(fld + sizeof(HTTP_MAP_JSON_Sign) + 1) == '-') return 3;
 	return 1;
+}
+#endif
+
+#ifdef PWM_CALC_POWER_ARRAY
+// Вычисление массива точного расчета мощности
+
+// power - 0.1W
+void WR_Calc_Power_Array_NewMeter(int32_t power)
+{
+	if(GETBIT(PWM_CalcFlags, PWM_fCalcNow)) {
+#ifdef WR_CurrentSensor_4_20mA
+		HP.sADC[IWR].Read();
+#ifndef TEST_BOARD
+		if(PWM_AverageCnt++) PWM_AverageSum += HP.sADC[IWR].get_Value() * (int)HP.dSDM.get_Voltage();
+#else
+		if(PWM_AverageCnt++) {
+			if(HP.dSDM.get_Voltage() != 0) PWM_AverageSum += HP.sADC[IWR].get_Value() * (int)HP.dSDM.get_Voltage();
+			else {
+				PWM_AverageSum += 10 + (GETBIT(PWM_CalcFlags, PWM_fCalcRelax) ? 0 : PWM_CalcIdx * 9) + (rand() & 0x3);
+			}
+		}
+#endif
+#else
+		if(++PWM_AverageCnt > PWM_CALC_POWER_SW_SKIP) PWM_AverageSum += round_div_int32(power, 10); // skip n
+#endif
+#if PWM_CALC_POWER_ARRAY == 1
+		if(GETBIT(PWM_CalcFlags, PWM_fCalcRelax)) {
+			if(PWM_AverageCnt >= PWM_CALC_POWER_SW_SKIP + 2) { // Relax
+				PWM_AverageSum = PWM_AverageSum / (PWM_AverageCnt - PWM_CALC_POWER_SW_SKIP);
+				if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf("Relax: %d\n", PWM_AverageSum);
+				PWM_AverageSum -= PWM_CalcArray[0];
+				if(abs(PWM_AverageSum) > 5) journal.jprintf("Non stable Relax power: %s%d\n", PWM_AverageSum > 0 ? "+" : "", PWM_AverageSum);
+				PWM_Write(WR_Load_pins[PWM_CalcLoadIdx], ((1<<PWM_WRITE_OUT_RESOLUTION)-1) - PWM_CalcIdx);
+				PWM_CalcFlags &= ~(1<<PWM_fCalcRelax);
+				PWM_AverageSum = PWM_AverageCnt = 0;
+			}
+		} else
+#endif
+		if(PWM_AverageCnt >= PWM_CALC_POWER_SW_SKIP + 2) { // Ok
+			PWM_AverageSum /= (PWM_AverageCnt - PWM_CALC_POWER_SW_SKIP);
+			if(PWM_CalcIdx) PWM_AverageSum -= PWM_CalcArray[0];
+			PWM_CalcArray[PWM_CalcIdx] = PWM_AverageSum;
+			if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf("Power[%d]: %d\n", PWM_CalcIdx, PWM_AverageSum);
+#if PWM_CALC_POWER_ARRAY == 1
+			PWM_Write(WR_Load_pins[PWM_CalcLoadIdx], ((1<<PWM_WRITE_OUT_RESOLUTION)-1));
+#endif
+			if(PWM_CalcIdx++ == ((1<<PWM_WRITE_OUT_RESOLUTION)-1)) {
+#if PWM_CALC_POWER_ARRAY != 1
+				PWM_Write(WR_Load_pins[PWM_CalcLoadIdx], ((1<<PWM_WRITE_OUT_RESOLUTION)-1));
+#endif
+				WR.LoadPower[PWM_CalcLoadIdx] = PWM_AverageSum;
+				WR_LoadRun[PWM_CalcLoadIdx] = 0;
+				TaskSuspendAll();
+				journal.jprintf_time("PWM Calc Ok\nPower[%d] = ", (1<<PWM_WRITE_OUT_RESOLUTION));
+				for(uint16_t i = 0; i < (1<<PWM_WRITE_OUT_RESOLUTION); i++) {
+					journal.jprintf("%d,", PWM_CalcArray[i]);
+				}
+				journal.jprintf("\nPWM[%d] = %d,", sizeof(PWM_POWER_ARRAY)/sizeof(PWM_POWER_ARRAY[0]), ((1<<PWM_WRITE_OUT_RESOLUTION)-1));
+				uint16_t last_idx = 1;
+				for(uint16_t i = 1; i < sizeof(PWM_POWER_ARRAY)/sizeof(PWM_POWER_ARRAY[0]) - 2; i++) {
+					int n = PWM_AverageSum * i / (sizeof(PWM_POWER_ARRAY)/sizeof(PWM_POWER_ARRAY[0])-1);
+					for(; last_idx < (1<<PWM_WRITE_OUT_RESOLUTION) - 1; last_idx++) {
+						if(n >= PWM_CalcArray[last_idx] && n <= PWM_CalcArray[last_idx + 1]) {
+							journal.jprintf("%d,", ((1<<PWM_WRITE_OUT_RESOLUTION)-1) - (abs(n - PWM_CalcArray[last_idx]) <= abs(n - PWM_CalcArray[last_idx + 1]) ? last_idx : ++last_idx));
+							break;
+						}
+					}
+				}
+				journal.jprintf("0, 0\n\n");
+				xTaskResumeAll();
+				free(PWM_CalcArray);
+				PWM_CalcFlags = 0;
+			} else {
+#if PWM_CALC_POWER_ARRAY == 1
+				PWM_CalcFlags |= (1<<PWM_fCalcRelax);
+#else
+				PWM_Write(WR_Load_pins[PWM_CalcLoadIdx], ((1<<PWM_WRITE_OUT_RESOLUTION)-1) - PWM_CalcIdx);
+#endif
+				WR_LoadRun[PWM_CalcLoadIdx] = PWM_CalcIdx;
+				PWM_AverageSum = PWM_AverageCnt = 0;
+			}
+		}
+	}
+}
+
+void WR_Calc_Power_Array_Start(int8_t load_idx)
+{
+#if !defined(WR_CurrentSensor_4_20mA) && !defined(WR_PowerMeter_Modbus)
+	journal.jprintf("PWM Calc not supported!\n");
+#else
+	journal.jprintf_time("PWM Calc begin:\n");
+	PWM_CalcLoadIdx = load_idx;
+	PWM_AverageSum = PWM_AverageCnt = PWM_StandbyPower = PWM_CalcIdx = 0;
+	PWM_CalcArray = (int16_t*) malloc(sizeof(int16_t) * (1<<PWM_WRITE_OUT_RESOLUTION));
+	if(PWM_CalcArray == NULL) {
+		journal.jprintf("Memory low!\n");
+		return;
+	}
+	PWM_Write(load_idx, ((1<<PWM_WRITE_OUT_RESOLUTION)-1));
+	PWM_CalcFlags |= (1<<PWM_fCalcNow);
+#endif
 }
 #endif
 

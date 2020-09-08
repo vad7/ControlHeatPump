@@ -129,6 +129,20 @@ uint32_t WR_SwitchTime[WR_NumLoads];
 uint32_t WR_LastSwitchTime = 0;
 uint8_t  WR_TestLoadStatus = 0; 		// >1 - идет тестирование нагрузки
 uint8_t  WR_TestLoadIndex;
+
+#ifdef PWM_CALC_POWER_ARRAY
+// Вычисление массива точного расчета мощности
+#define PWM_fCalcNow			1
+#define PWM_fCalcRelax			2
+uint8_t PWM_CalcFlags = 0;
+int8_t  PWM_CalcLoadIdx;
+int32_t PWM_AverageSum;
+uint8_t PWM_AverageCnt; // +1
+int32_t PWM_StandbyPower;
+int16_t *PWM_CalcArray;
+uint16_t PWM_CalcIdx;
+#endif
+
 struct {
 	WR_fTYPE Loads;						// Биты активирования нагрузки
 	WR_fTYPE Loads_PWM;					// Биты нагрузки PWM
@@ -144,6 +158,10 @@ struct {
 	uint8_t  PWM_FullPowerLimit;		// Процент ограничения мощности после времени максимальной работы, %
 	int16_t  LoadPower[WR_NumLoads];	// Мощности нагрузки, Вт
 } WR;
+
+#ifdef WEATHER_FORECAST
+uint8_t WF_BoilerTargetPercent = 100;
+#endif
 #endif
 
 // Рабочие флаги ТН
@@ -209,6 +227,10 @@ struct type_optionHP
  uint16_t flags2;						// Флаги #2 до 16 флагов
  uint16_t SunMinWorktime;				// Солнечный коллектор - минимальное время работы, после которого будут проверятся границы, сек
  uint16_t SunMinPause;					// Солнечный коллектор - минимальное время паузы после останова СК, сек
+#ifdef WEATHER_FORECAST
+ char     WF_ReqServer[24];				// Сервер прогноза погоды по протоколу http
+ char     WF_ReqText[128];				// Тело GET запроса
+#endif
 };// __attribute__((packed));
 
 
@@ -458,6 +480,7 @@ class HeatPump
    
    // Бойлер ТН
     int16_t get_boilerTempTarget();					          // Получить целевую температуру бойлера с учетом корректировки
+    __attribute__((always_inline)) inline int16_t Boiler_Target_AddHeating() { return Prof.Boiler.tempRBOILER - (onBoiler || HeatBoilerUrgently ? 0 : Prof.Boiler.dAddHeat); }
     boolean get_Circulation(){return GETBIT(Prof.Boiler.flags,fCirculation);} // Нужно ли управлять циркуляционным насосом болйлера
     uint16_t get_CirculWork(){ return Prof.Boiler.Circul_Work; }            // Время  работы насоса ГВС секунды (fCirculation)
     uint16_t get_CirculPause(){ return Prof.Boiler.Circul_Pause;}           // Пауза в работе насоса ГВС  секунды (fCirculation)
@@ -628,7 +651,7 @@ class HeatPump
     uint32_t stopCompressor;              // время останова компрессора (для опеспечения паузы)
     uint32_t offBoiler;                   // время выключения нагрева ГВС ТН (необходимо для переключения на другие режимы на ходу)
     uint32_t startDefrost;                // время срабатывания датчика разморозки
-    uint32_t startSallmonela;             // время начала обеззараживания
+    uint32_t startSalmonella;             // время начала обеззараживания
     uint32_t command_completed;			  // Время отработки команды
     boolean  compressor_in_pause;         // Компрессор в паузе
        
@@ -644,7 +667,7 @@ class HeatPump
     unsigned long updatePidBoiler;        // время обновления ПИДа ГВС
     boolean flagRBOILER;                  // true - идет или скоро может быть пойдет цикл догрева бойлера
     boolean onBoiler;                     // Если true то идет нагрев бойлера ТН (не ТЭНом)
-    boolean onSallmonela;                 // Если true то идет Обеззараживание
+    boolean onSalmonella;                 // Если true то идет Обеззараживание
     
     friend void set_Error(int8_t err, char *nam );// Установка критической ошибки для класса ТН
   };

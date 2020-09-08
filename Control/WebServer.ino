@@ -1214,10 +1214,10 @@ void parserGET(uint8_t thread, int8_t )
 			strcat(strReturn,"K_VCC_POWER|Коэффициент пересчета для канала контроля напряжения питания (отсчеты/В)|");
 			_ftoa(strReturn,(float)K_VCC_POWER,2);strcat(strReturn,";");
 #endif
-			// SALLMONELA
-			strcat(strReturn,"SALLMONELA_DAY|День недели когда проводится обеззараживание ГВС (1-понедельник)|");_itoa(SALLMONELA_DAY,strReturn);strcat(strReturn,";");
-			strcat(strReturn,"SALLMONELA_HOUR|Час когда начинаятся обеззарживание ГВС|");_itoa(SALLMONELA_HOUR,strReturn);strcat(strReturn,";");
-			strcat(strReturn,"SALLMONELA_TEMP|Целевая температура обеззараживания ГВС (°C)|");_dtoa(strReturn, SALLMONELA_TEMP, 2);strcat(strReturn,";");
+			// SALMONELLA
+			strcat(strReturn,"SALMONELLA_DAY|День недели когда проводится обеззараживание ГВС (1-понедельник)|");_itoa(SALMONELLA_DAY,strReturn);strcat(strReturn,";");
+			strcat(strReturn,"SALMONELLA_HOUR|Час когда начинаятся обеззарживание ГВС|");_itoa(SALMONELLA_HOUR,strReturn);strcat(strReturn,";");
+			strcat(strReturn,"SALMONELLA_TEMP|Целевая температура обеззараживания ГВС (°C)|");_dtoa(strReturn, SALMONELLA_TEMP, 2);strcat(strReturn,";");
 			// ЭРВ
 #ifdef EEV_DEF
 			strcat(strReturn,"EEV_QUEUE|Длина очереди команд шагового двигателя ЭРВ|");_itoa(EEV_QUEUE,strReturn);strcat(strReturn,";");
@@ -1969,16 +1969,39 @@ void parserGET(uint8_t thread, int8_t )
 			}
 
 			// 13 Опции теплового насоса
-			if (strcmp(str,"get_oHP")==0)           // Функция get_optionHP - получить значение параметра отопления ТН
+			if(strcmp(str, "get_oHP") == 0)           // Функция get_optionHP - получить значение параметра отопления ТН
 			{
-				HP.get_optionHP(x,strReturn); ADD_WEBDELIM(strReturn) ; continue;
-			} else if (strcmp(str,"set_oHP")==0)           // Функция set_optionHP - установить значение паремтра  опций
+#ifdef WEATHER_FORECAST
+xGetOptionHP:
+				if(strcmp(x, option_WF_ReqServer)==0) {
+					strcat(strReturn, HP.Option.WF_ReqServer);
+				} else if(strcmp(x, option_WF_ReqText)==0) {
+					strcat(strReturn, HP.Option.WF_ReqText);
+				} else
+#endif
+					HP.get_optionHP(x, strReturn);
+				ADD_WEBDELIM(strReturn);
+				continue;
+			} else if(strcmp(str, "set_oHP") == 0)           // Функция set_optionHP - установить значение паремтра  опций
 			{
-				if (pm!=ATOF_ERROR) {   // нет ошибки преобразования
-					if (HP.set_optionHP(x,pm))   HP.get_optionHP(x,strReturn);  // преобразование удачно,
-					else strcat(strReturn,"E17") ; // выход за диапазон значений
-				} else strcat(strReturn,"E11");   // ошибка преобразования во флоат
-				ADD_WEBDELIM(strReturn); continue;
+				if(pm != ATOF_ERROR) {   // нет ошибки преобразования
+					if(HP.set_optionHP(x, pm)) HP.get_optionHP(x, strReturn);  // преобразование удачно,
+					else strcat(strReturn, "E17"); // выход за диапазон значений
+				} else {
+#ifdef WEATHER_FORECAST
+					str_replace(z, '$', '&');
+					if(strcmp(x, option_WF_ReqServer)==0) {
+						strncpy(HP.Option.WF_ReqServer, z, sizeof(HP.Option.WF_ReqServer)-1);
+						goto xGetOptionHP;
+					} else if(strcmp(x, option_WF_ReqText)==0) {
+						strncpy(HP.Option.WF_ReqText, z, sizeof(HP.Option.WF_ReqText)-1);
+						goto xGetOptionHP;
+					}
+#endif
+					strcat(strReturn, "E11");   // ошибка преобразования во флоат
+				}
+				ADD_WEBDELIM(strReturn);
+				continue;
 			}
 			//14.  Параметры  отопления и охлаждения ТН
 			if (strcmp(str,"get_Cool")==0)           // Функция get_paramCoolHP - получить значение параметра охлаждения ТН
@@ -2334,8 +2357,13 @@ x_get_aTemp:
 #ifdef WR_Load_pins_Boiler_INDEX
 							if(p == WR_Load_pins_Boiler_INDEX) strcat(strReturn, "(B)");
 #endif
+						} else if(*str == 'C') { // get_WRC(n)
+							if(GETBIT(WR.Loads_PWM, p))	{
+								WR_Calc_Power_Array_Start(p);
+								strcat(strReturn, "1");
+							}
 						} else { // get_WR(n)
-							if(p == 0) {
+							if(p == 0) { // get_WR(0)
 								if(WR_Pnet == -32768) strcat(strReturn, "-"); else _itoa(WR_Pnet, strReturn);
 							}
 						}
@@ -2778,7 +2806,6 @@ x_ok:
 #define emptyStr			WEB_HEADER_END  	   // пустая строка после которой начинаются данные
 #define MAX_FILE_LEN		64  	              // максимальная длина имени файла
 const char Title[]          = "Title: ";          // где лежит имя файла
-const char Length[]         = "Content-Length: "; // где лежит длина файла
 const char SETTINGS[]       = "*SETTINGS*";       // Идентификатор передачи настроек (лежит в Title:)
 const char LOAD_FLASH_START[]= "*SPI_FLASH*";     // Идентификатор начала загрузки веб морды в SPI Flash (лежит в Title:)
 const char LOAD_FLASH_END[]  = "*SPI_FLASH_END*"; // Идентификатор колнца загрузки веб морды в SPI Flash (лежит в Title:)
@@ -2804,7 +2831,7 @@ TYPE_RET_POST parserPOST(uint8_t thread, uint16_t size)
 	if(!ptr) return pLOAD_ERR;
 	ptr += sizeof(emptyStr) - 1;
 	nameFile = strstr(Socket[thread].inPtr, Title);
-	pStart = (byte*) strstr(Socket[thread].inPtr, Length);
+	pStart = (byte*) strstr(Socket[thread].inPtr, http_Length);
 	if(nameFile) {
 		char *p = strchr(nameFile += sizeof(Title) - 1, '\r');
 		if(p) *p = '\0'; else nameFile = NULL;
@@ -2819,7 +2846,7 @@ TYPE_RET_POST parserPOST(uint8_t thread, uint16_t size)
 		return pLOAD_ERR;
 	}
 	if(pStart) {
-		char *p = strchr((char*)(pStart += sizeof(Length) - 1), '\r');
+		char *p = strchr((char*)(pStart += sizeof(http_Length) - 1), '\r');
 		if(p) *p = '\0'; else pStart = NULL;
 	}
 	if(!pStart) { // Размер файла не найден, запрос не верен, выходим
@@ -2848,7 +2875,7 @@ xLenErr:
 		while(1)  // Чтение остальных бинарных данных по сети
 		{
 			for(uint8_t i = 0; i < 255; i++) {
-				if(!Socket[thread].client.available()) _delay(1); else break; // ждем получние пакета до 20 мсек (может быть плохая связь)
+				if(!Socket[thread].client.available()) _delay(1); else break; // ждем получение пакета
 			}
 			if(!Socket[thread].client.available()) break;                                          // пакета нет - выходим
 			len = Socket[thread].client.get_ReceivedSizeRX();                                      // получить длину входного пакета

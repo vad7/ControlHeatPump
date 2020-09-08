@@ -680,7 +680,7 @@ void HeatPump::updateDateTime(int32_t dTime)
 		if(countNTP > 0) countNTP = countNTP + dTime;                           // число секунд с последнего обновления по NTP
 		if(offBoiler > 0) offBoiler = offBoiler + dTime;                         // время выключения нагрева ГВС ТН (необходимо для переключения на другие режимы на ходу)
 		if(startDefrost > 0) startDefrost = startDefrost + dTime;                   // время срабатывания датчика разморозки
-		if(startSallmonela > 0) startSallmonela = startSallmonela + dTime;             // время начала обеззараживания
+		if(startSalmonella > 0) startSalmonella = startSalmonella + dTime;             // время начала обеззараживания
 #ifdef WATTROUTER
 		if(WR_LastSwitchTime) WR_LastSwitchTime += dTime;
 		for(uint8_t i = 0; i < WR_NumLoads; i++) {
@@ -720,7 +720,7 @@ void HeatPump::resetSettingHP()
 
 	startWait = false;                              // Начало работы с ожидания
 	onBoiler = false;                               // Если true то идет нагрев бойлера
-	onSallmonela = false;                           // Если true то идет Обеззараживание
+	onSalmonella = false;                           // Если true то идет Обеззараживание
 	command = pEMPTY;                               // Команд на выполнение нет
 	next_command = pEMPTY;
 	PauseStart = 0;                                 // начать отсчет задержки пред стартом с начала
@@ -745,7 +745,7 @@ void HeatPump::resetSettingHP()
 	offBoiler = 0;                                  // время выключения нагрева ГВС ТН (необходимо для переключения на другие режимы на ходу)
 	startDefrost = 0;                               // время срабатывания датчика разморозки
 	timeNTP = 0;                                    // Время обновления по NTP в тиках (0-сразу обновляемся)
-	startSallmonela = 0;                            // время начала обеззараживания
+	startSalmonella = 0;                            // время начала обеззараживания
 	command_completed = 0;
 	time_Sun = 0;
 	compressor_in_pause = false;
@@ -1534,22 +1534,28 @@ int16_t HeatPump::get_targetTempHeat()
 }
 
 // ИЗМЕНИТЬ целевую температуру бойлера с провекой допустимости значений
-int16_t HeatPump::setTempTargetBoiler(int16_t dt)
-{
-  if ((Prof.Boiler.TempTarget+dt>=5.0*100)&&(Prof.Boiler.TempTarget+dt<=90.0*100))   Prof.Boiler.TempTarget=Prof.Boiler.TempTarget+dt;
-  return Prof.Boiler.TempTarget;     
+int16_t HeatPump::setTempTargetBoiler(int16_t dt) {
+	if((Prof.Boiler.TempTarget + dt >= 500) && (Prof.Boiler.TempTarget + dt <= 9000)) Prof.Boiler.TempTarget = Prof.Boiler.TempTarget + dt;
+	return Prof.Boiler.TempTarget;
 }
 
 // Получить целевую температуру бойлера с учетом корректировки
 int16_t HeatPump::get_boilerTempTarget()
 {
-	 if(Prof.Boiler.add_delta_temp != 0) {
-		int8_t h = rtcSAM3X8.get_hours();
+	int16_t ret = Prof.Boiler.TempTarget;
+	int8_t h = rtcSAM3X8.get_hours();
+	if(Prof.Boiler.add_delta_temp != 0) {
 		if((Prof.Boiler.add_delta_end_hour >= Prof.Boiler.add_delta_hour && h >= Prof.Boiler.add_delta_hour && h <= Prof.Boiler.add_delta_end_hour)
-			|| (Prof.Boiler.add_delta_end_hour < Prof.Boiler.add_delta_hour && (h >= Prof.Boiler.add_delta_hour || h <= Prof.Boiler.add_delta_end_hour)))
-			return Prof.Boiler.TempTarget + Prof.Boiler.add_delta_temp;
-	 }
-	 return Prof.Boiler.TempTarget;
+				|| (Prof.Boiler.add_delta_end_hour < Prof.Boiler.add_delta_hour && (h >= Prof.Boiler.add_delta_hour || h <= Prof.Boiler.add_delta_end_hour)))
+			ret += Prof.Boiler.add_delta_temp;
+	}
+#if defined(WATTROUTER) && defined(WEATHER_FORECAST) && defined(WR_Load_pins_Boiler_INDEX)
+	if(h <= TARIF_NIGHT_END && GETBIT(WR.Loads, WR_Load_pins_Boiler_INDEX) && GETBIT(WR.Flags, WR_fActive) && WF_BoilerTargetPercent < 99) {
+		ret = Prof.Boiler.WF_MinTarget + (ret - Prof.Boiler.WF_MinTarget) * WF_BoilerTargetPercent / 100;
+		if(ret < Prof.Boiler.tempRBOILER) ret = Prof.Boiler.tempRBOILER;
+	}
+#endif
+	return ret;
 }
 
 // Получить целевую температуру отопления
@@ -1864,7 +1870,7 @@ xGoWait:
 	}
 
 	offBoiler = 0;                                         // Бойлер никогда не выключался
-	onSallmonela = false;                                  // Если true то идет Обеззараживание
+	onSalmonella = false;                                  // Если true то идет Обеззараживание
 	onBoiler = false;                                      // Если true то идет нагрев бойлера
 	SETBIT0(flags, fHP_BoilerTogetherHeat);
 
@@ -2101,33 +2107,33 @@ boolean HeatPump::boilerAddHeat()
 	int16_t T = sTemp[TBOILER].get_Temp();
 	if((GETBIT(Prof.SaveON.flags, fBoilerON)) && (GETBIT(Prof.Boiler.flags, fSalmonella)) && (!GETBIT(Option.flags, fBackupPower))) // Сальмонелла не взирая на расписание если включен бойлер и не питание от резервного источника
 	{
-		if((rtcSAM3X8.get_day_of_week() == SALLMONELA_DAY) && (rtcSAM3X8.get_hours() == SALLMONELA_HOUR) && (rtcSAM3X8.get_minutes() <= 2) && (!onSallmonela)) { // Надо начитать процесс обеззараживания
-			startSallmonela = rtcSAM3X8.unixtime();
-			onSallmonela = true;
+		if((rtcSAM3X8.get_day_of_week() == SALMONELLA_DAY) && (rtcSAM3X8.get_hours() == SALMONELLA_HOUR) && (rtcSAM3X8.get_minutes() <= 2) && (!onSalmonella)) { // Надо начитать процесс обеззараживания
+			startSalmonella = rtcSAM3X8.unixtime();
+			onSalmonella = true;
 			journal.jprintf(" Cycle start salmonella, %.2dC°\n", sTemp[TBOILER].get_Temp());
 		}
-		if(onSallmonela) {   // Обеззараживание нужно
-			if(startSallmonela + SALLMONELA_TIME > rtcSAM3X8.unixtime()) { // Время цикла еще не исчерпано
-				if(T < SALLMONELA_TEMP) return true; // Включить обеззараживание
-#ifdef SALLMONELA_HARD
-				else if (T > SALLMONELA_TEMP+50) return false; else return dRelay[RBOILER].get_Relay(); // Вариант работы - Стабилизация температуры обеззараживания, гистерезис 0.5 градуса
+		if(onSalmonella) {   // Обеззараживание нужно
+			if(startSalmonella + SALMONELLA_TIME > rtcSAM3X8.unixtime()) { // Время цикла еще не исчерпано
+				if(T < SALMONELLA_TEMP) return true; // Включить обеззараживание
+#ifdef SALMONELLA_HARD
+				else if (T > SALMONELLA_TEMP+50) return false; else return dRelay[RBOILER].get_Relay(); // Вариант работы - Стабилизация температуры обеззараживания, гистерезис 0.5 градуса
 #else
 				else {  // Вариант работы только до достижение темперaтуpы и сразу выключение
-					onSallmonela = false;
-					startSallmonela = 0;
+					onSalmonella = false;
+					startSalmonella = 0;
 					journal.jprintf(" Salmonella cycle finished, %.2dC°\n", sTemp[TBOILER].get_Temp());
 					return false;
 				}
 #endif
 			} else {  // Время вышло, выключаем, и идем дальше по алгоритму
-				onSallmonela = false;
-				startSallmonela = 0;
+				onSalmonella = false;
+				startSalmonella = 0;
 				journal.jprintf(" Salmonella cycle end, %.2dC°\n", sTemp[TBOILER].get_Temp());
 			}
 		}
-	} else if(onSallmonela) { // если сальмонеллу отключили на ходу выключаем и идем дальше по алгоритму
-		onSallmonela = false;
-		startSallmonela = 0;
+	} else if(onSalmonella) { // если сальмонеллу отключили на ходу выключаем и идем дальше по алгоритму
+		onSalmonella = false;
+		startSalmonella = 0;
 		journal.jprintf(" Off salmonella\n");
 	}
 
@@ -2291,7 +2297,7 @@ MODE_COMP  HeatPump::UpdateBoiler()
 		// Отслеживание выключения (с учетом догрева)
 		if(!GETBIT(Prof.Boiler.flags, fTurboBoiler) && GETBIT(Prof.Boiler.flags, fAddHeating))// режим догрева, не турбо
 		{
-			if (T > Prof.Boiler.tempRBOILER - (onBoiler || HeatBoilerUrgently ? 0 : Prof.Boiler.dAddHeat)) {
+			if(T > Boiler_Target_AddHeating()) {
 				Status.ret=pBh22; return pCOMP_OFF; // Температура выше целевой температуры ДОГРЕВА надо выключаться!
 			}
 		}
@@ -2319,7 +2325,7 @@ MODE_COMP  HeatPump::UpdateBoiler()
 		// Отслеживание выключения (с учетом догрева)
 		if(!GETBIT(Prof.Boiler.flags, fTurboBoiler) && GETBIT(Prof.Boiler.flags, fAddHeating))// режим догрева, не турбо
 		{
-			if (T > Prof.Boiler.tempRBOILER - (onBoiler || HeatBoilerUrgently ? 0 : Prof.Boiler.dAddHeat)) {
+			if(T > Boiler_Target_AddHeating()) {
 				Status.ret=pBp22; return pCOMP_OFF;  // Температура выше целевой температуры ДОГРЕВА надо выключаться!
 			}
 		}

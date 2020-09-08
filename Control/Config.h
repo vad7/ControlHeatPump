@@ -868,7 +868,7 @@ const char *noteTemp[] = {"Температура улицы",
        const boolean SENSORTEMP[TNUMBER]={true,true,true,true,true,true,true,true,true/*TRTO*/,true,false,false,true,true,true,true}; 
        // минимальные значения температур
        const int16_t MINTEMP[TNUMBER]={-4000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000};
-      // Макимальные значения температур ВНИМАНИЕ! для TBOILER температура меняется если включен режим сальмонеллы на SALLMONELA_TEMP+300
+      // Макимальные значения температур ВНИМАНИЕ! для TBOILER температура меняется если включен режим сальмонеллы на SALMONELLA_TEMP+300
        const int16_t MAXTEMP[TNUMBER]={9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500};
       // Значения датчиков при тестировании  опция TEST В СОТЫХ ГРАДУСА
         const int16_t TESTTEMP[TNUMBER]={1000,2000,300,400,1000,3000,700,500,500,500,500,500,2000,2000,2000,2000};
@@ -1410,7 +1410,7 @@ const char *noteTemp[] = {"Температура улицы",
        //7 - выводить снизу на схеме и не строить график
        const uint8_t SENSORTEMP[TNUMBER]={    1,    1,    1,    1,    1,    1,    1,    0,    1,    1,    1,    1,   1,   1,   3,   3,   3,   3,  3,  3,   3,   3,   3,  3,  3};
        const int16_t MINTEMP[TNUMBER]={-4000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000};
-       // Макимальные значения температур ВНИМАНИЕ! для TBOILER температура меняется если включен режим сальмонеллы на SALLMONELA_TEMP+300
+       // Макимальные значения температур ВНИМАНИЕ! для TBOILER температура меняется если включен режим сальмонеллы на SALMONELLA_TEMP+300
        const int16_t MAXTEMP[TNUMBER]={9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500};
        // Значения датчиков при тестировании  опция TEST В СОТЫХ ГРАДУСА
        const int16_t TESTTEMP[TNUMBER]={1000,2000,300,400,1000,3000,-700,-1234,-500,500,0,0,2000,2000,2000,2000,2000,2000,2000,2000,2000,2000,2000,2000,2000};
@@ -1928,7 +1928,7 @@ const char *noteTemp[] = {"Температура улицы",
      const boolean SENSORTEMP[TNUMBER]={true,true,true,true,false,true,true,false,true,true,true,true,true,true};
       // минимальные значения температур
      const int16_t MINTEMP[TNUMBER]={-4000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000,-3000};
-     // Макимальные значения температур ВНИМАНИЕ! для TBOILER температура меняется если включен режим сальмонеллы на SALLMONELA_TEMP+300
+     // Макимальные значения температур ВНИМАНИЕ! для TBOILER температура меняется если включен режим сальмонеллы на SALMONELLA_TEMP+300
      const int16_t MAXTEMP[TNUMBER]={9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500,9500};
      // Значения датчиков при тестировании  опция TEST В СОТЫХ ГРАДУСА
      const int16_t TESTTEMP[TNUMBER]={1000,2000,300,400,1000,3000,700,500,500,500,500,500,2000,2000}; 
@@ -2463,7 +2463,7 @@ const char *noteTemp[] = {"Температура улицы",
        const boolean SENSORTEMP[TNUMBER]={true,true,true,true,true,true,true,true,true/*3way*/,true,true,true,true,true};
        // минимальные значения температур
        const int16_t MINTEMP[TNUMBER]={-3500,-3000,-1500,-1000,-2000,-2000,0,-500,-1510,100,-1000,-1000,-1000,-1000};
-       // Макимальные значения температур ВНИМАНИЕ! для TBOILER температура берется не здесь, она равна SALLMONELA_TEMP+300
+       // Макимальные значения температур ВНИМАНИЕ! для TBOILER температура берется не здесь, она равна SALMONELLA_TEMP+300
        const int16_t MAXTEMP[TNUMBER]={4000,3500,2520,4000,8500,6520,5510,4200,4010,8700,2500,2500,5000,5500};
        // Значения датчиков при тестировании  опция TEST В СОТЫХ ГРАДУСА
        const int16_t TESTTEMP[TNUMBER]={1000,2000,300,400,1000,3000,765,123,-500,500,0,0,2000,2000};
@@ -3006,7 +3006,7 @@ const char *noteTemp[] = {"Температура улицы",
     const uint8_t SENSORTEMP[TNUMBER]={    5,    1,    1,    1,    1,    1,    1,    1,    1,    1,    1,    1,    7,    7 };
     // минимальные значения температур
     const int16_t MINTEMP[TNUMBER] = { -4000,-1000,-1000,-1000,-2000,-2000,-2000,-2000,-2000,-2000,-4000,-2000,-2000,-3000 };
-    // Макимальные значения температур, ВНИМАНИЕ! для TBOILER температура меняется если включен режим сальмонеллы на SALLMONELA_TEMP+300
+    // Макимальные значения температур, ВНИМАНИЕ! для TBOILER температура меняется если включен режим сальмонеллы на SALMONELLA_TEMP+300
     const int16_t MAXTEMP[TNUMBER] = {  9000, 9000, 9000, 8700, 9000, 9000, 6000, 6500, 9000, 9000,10000, 9000, 9000, 9000 };
     // Значения датчиков при тестировании, опция TEST
     const int16_t TESTTEMP[TNUMBER]= {  1000, 2200, 6000, 5000,  500,  100, 3000, 3500, -200, 3300, 2700, 3500, 2000, 2100 };
@@ -3355,11 +3355,13 @@ const char *noteTemp[] = {"Температура улицы",
 	#endif
 	//	#define PIN_ONE_WIRE_BUS   23       // X23-X24. нога с интерфейсом программный OneWire ВСЕ температурные датчики
 
-	#define USE_SUN_COLLECTOR			// Используется солнечный/воздушный коллектор (работает при включенном ТН постоянно, если позволяет температура)
-	#define SUN_TDELTA			300		// Дельта температур для включения, сотые градуса, по умолчанию
-	#define SUNG_TDELTA			200		// Дельта температур жидкости для выключения, сотые градуса, по умолчанию
-	#define SUN_MIN_WORKTIME	120		// минимальное время работы, после которого будут проверятся границы, сек, по умолчанию
-	#define SUN_MIN_PAUSE		900		// минимальное время паузы после останова СК, сек, по умолчанию
+	#define TARIF_NIGHT_END			6		// Последний час ночного тарифа электроэнергии
+
+	#define USE_SUN_COLLECTOR				// Используется солнечный/воздушный коллектор (работает при включенном ТН постоянно, если позволяет температура)
+	#define SUN_TDELTA				300		// Дельта температур для включения, сотые градуса, по умолчанию
+	#define SUNG_TDELTA				200		// Дельта температур жидкости для выключения, сотые градуса, по умолчанию
+	#define SUN_MIN_WORKTIME		120		// минимальное время работы, после которого будут проверятся границы, сек, по умолчанию
+	#define SUN_MIN_PAUSE			900		// минимальное время паузы после останова СК, сек, по умолчанию
 
 	#define RADIO_SENSORS			// Радиодатчики через ZONT МЛ‑489.
 	// Подключение через плату UART - K-line или через 4 платы UART-RS485 отдельно на RX и TX, на стороне МЛ-489 : питание 5V, через диод K-line >--TX--|>|--RX
@@ -3372,10 +3374,11 @@ const char *noteTemp[] = {"Температура улицы",
 
 	#ifdef TEST_BOARD
 		#define DEBUG                   // В последовательный порт шлет сообщения в первую очередь ошибки
-	//	#define DEBUG_NATIVE_USB		// Отладка через второй USB порт (Native)
-		#define DEBUG_MODWORK           // Вывод в консоль состояние HP при работе
-	//  #define NEXTION_DEBUG 			// Отладка дисплея Nextion
-	//	#define DEBUG_PID				// Отладка ПИДа
+//		#define DEBUG_NATIVE_USB		// Отладка через второй USB порт (Native)
+//		#define DEBUG_MODWORK           // Вывод в консоль состояние HP при работе
+//		#define NEXTION_DEBUG 			// Отладка дисплея Nextion - отправка
+//		#define NEXTION_DEBUG2 			// Отладка дисплея Nextion - прием
+//		#define DEBUG_PID				// Отладка ПИДа
 		#define I2C_FRAM_MEMORY  0		// 1 - FRAM память
 		#undef ONEWIRE_DS2482
 		#undef ONEWIRE_DS2482_SECOND
@@ -3386,7 +3389,8 @@ const char *noteTemp[] = {"Температура улицы",
 	#else
 		#define DEBUG                   // В последовательный порт шлет сообщения в первую очередь ошибки
 		//#define DEBUG_NATIVE_USB		// Отладка через второй USB порт (Native)
-		//#define DEBUG_MODWORK           // Вывод в консоль состояние HP при работе
+		//#define DEBUG_MODWORK			// Вывод в консоль состояние HP при работе
+	  	//#define NEXTION_DEBUG2			// Отладка дисплея Nextion - прием
 		//#define DEBUG_PID				// Отладка ПИДа
 		#define DEBUG_RADIO				// Отладка радиодатчиков
 		#define I2C_EEPROM_64KB	        // Использование памяти I2C для записи журнала при коментарии используется оперативка
@@ -3649,8 +3653,8 @@ const char *noteTemp[] = {"Температура улицы",
 	#define PIN_DEVICE_RPUMPO          47 //[R_2] Реле включения насоса выходного контура  (отопление и ГВС)
 	#define PIN_DEVICE_RPUMPBH         48 //[R_3] Реле насоса НАГРЕВА бойлера (ГВС) - не циркуляция
 	#define PIN_DEVICE_RPUMPI          49 //[R_4] Реле включения насоса входного контура  (геоконтур)
-	#define PIN_DEVICE_RBOILER         11 //[R_8] Включение ТЭНа бойлера (SSR, PWM)
-	#define PIN_PWM_ZERO_CROSS         12 // X1.2(+),X17.2(-)
+	#define PIN_DEVICE_RBOILER         11 //[R_8] Включение ТЭНа бойлера (SSR, PWM). PWM - Dimmer(10000W).SCR, GND - Dimmer.[MOC3023.2](Cut MOC3023.2 to Dimmer.GND!)
+	#define PIN_PWM_ZERO_CROSS         12 // X17.2(-), X1.2(+) - EL817C.4(pullup to X1.1(3.3V) - R75k), [Dimmer(10000W).Zero - Zero] - R15k - PC817C.1, Dimmer.GND - PC817C.2
 	#define PIN_DEVICE_R4WAY           51 //[R_6] 4-ходовой клапан
 	#define PIN_DEVICE_RPUMPFL         50 //[R_5 реле насоса Теплого Пола
 	#ifdef USE_SUN_COLLECTOR
@@ -3794,7 +3798,7 @@ const char *noteTemp[] = {"Температура улицы",
 	const uint8_t SENSORTEMP[TNUMBER]={    1,    1,    1,    1,    1,    1,    1,    1,    1,    1,    1,    1,    7,    7,    7,    7,    4,    6,    6,    6,    6,    6,    1,    1 };
 	// минимальные значения температур
 	const int16_t MINTEMP[TNUMBER] = { -4000,-1000,-1000,-1000,-2000,-2000,-2000,-2000,-2000,-2000,-4000,-2000,-2000,-3000,-3000,-3000,-3000,-2000,-2000,-2000,-2000,-2000,-2000,-2000 };
-	// Макимальные значения температур, ВНИМАНИЕ! для TBOILER температура меняется если включен режим сальмонеллы на SALLMONELA_TEMP+300
+	// Макимальные значения температур, ВНИМАНИЕ! для TBOILER температура меняется если включен режим сальмонеллы на SALMONELLA_TEMP+300
 	const int16_t MAXTEMP[TNUMBER] = {  9000, 9000, 9000, 8700, 9000, 9000, 6000, 6500, 9000, 9000,10000, 9000, 9000, 9000, 9000, 9000, 9000, 7000, 7000, 7000, 7000, 7000, 9000, 9000 };
 	// Значения датчиков при тестировании, опция TEST
 	const int16_t TESTTEMP[TNUMBER]= {  1000, 2200, 6000, 5000,  500,  100, 3000, 3500, -200, 3300, 2700, 3500, 2000, 2100, 2200, 1500, 2150, 2301, 2302, 2303, 2304, 2305, 2800, -100 };
@@ -3874,74 +3878,6 @@ const char *noteTemp[] = {"Температура улицы",
 	#define FEED      sTemp[TCONOUTG].get_Temp()       // Подача системы CO
 	#define RET       sTemp[TCONING].get_Temp()        // Обратка системы CO
 
-	// Графики в памяти
-	Charts_Mod_setup ChartsModSetup[] = {
-		{ STATS_OBJ_Temp, TOUT },
-		{ STATS_OBJ_Temp, TIN },
-		{ STATS_OBJ_Temp, TBOILER },
-		{ STATS_OBJ_Temp, TCOMP },
-		{ STATS_OBJ_Temp, TEVAING },
-		{ STATS_OBJ_Temp, TEVAOUTG },
-		{ STATS_OBJ_Temp, TCONING },
-		{ STATS_OBJ_Temp, TCONOUTG },
-		{ STATS_OBJ_Temp, TEVAOUT },
-		{ STATS_OBJ_Temp, TCONOUT },
-		{ STATS_OBJ_Temp, TSUN },
-		{ STATS_OBJ_Temp, TSUNOUTG },
-		{ STATS_OBJ_Flow, FLOWEVA },
-		{ STATS_OBJ_Flow, FLOWCON },
-		//{ STATS_OBJ_Press, PGEO },
-		{ STATS_OBJ_Press, POUT },
-		{ STATS_OBJ_PressTemp, PEVA },
-		{ STATS_OBJ_PressTemp, PCON }
-	};
-	const Charts_Const_setup ChartsConstSetup[] = {
-		{ STATS_OBJ_EEV, "ЭРВ" },
-		{ STATS_OBJ_Overheat, "Перегрев" },
-		{ STATS_OBJ_Overheat2, "Перегрев на входе компрессора" },
-		{ STATS_OBJ_Compressor, "Частота, Гц" },
-		//{ STATS_OBJ_Power_FC, "Мощность компрессора" },
-		{ STATS_OBJ_Power, "Потребляемая мощность" },
-		{ STATS_OBJ_COP_Full, "COP" }
-	};
-	const Charts_Const_setup ChartsOnFlySetup[] = {
-		{ STATS_OBJ_Overcool, "Переохлаждение" }, // T[PCON] - TCONOUT
-		{ STATS_OBJ_TCOMP_TCON, "Нагнетание - Конденсация" }, // TCOMP - TCON
-		{ STATS_OBJ_Delta_GEO, "Дельта температур геоконтура" }, // TEVAING - TEVAOUTG
-		{ STATS_OBJ_Delta_OUT, "Дельта температур выхода" }, // TCONOUTG - TCONING
-		{ STATS_OBJ_Power_GEO, "Мощность геоконтура" }, // (TEVAOUTG - TEVAING) * FLOWEVA / kfCapacity
-		{ STATS_OBJ_Power_OUT, "Выходная мощность" } // (TCONOUTG - TCONING) * FLOWCON / kfCapacity
-	};
-
-	// История (графики) на SD карте
-	const History_setup HistorySetup[] = {
-		{ STATS_OBJ_Compressor, 0, "Компрессор, Гц" },
-		{ STATS_OBJ_Temp, TOUT, noteTemp[TOUT] },
-		{ STATS_OBJ_Temp, TIN, noteTemp[TIN] },
-		{ STATS_OBJ_Temp, TBOILER, noteTemp[TBOILER] },
-		{ STATS_OBJ_Temp, TCOMP, noteTemp[TCOMP] },
-		{ STATS_OBJ_Temp, TEVAING, noteTemp[TEVAING] },
-		{ STATS_OBJ_Temp, TEVAOUTG, noteTemp[TEVAOUTG] },
-		{ STATS_OBJ_Temp, TCONING, noteTemp[TCONING] },
-		{ STATS_OBJ_Temp, TCONOUTG, noteTemp[TCONOUTG] },
-		{ STATS_OBJ_Temp, TEVAOUT, noteTemp[TEVAOUT] },
-		{ STATS_OBJ_Temp, TCONOUT, noteTemp[TCONOUT] },
-		{ STATS_OBJ_Temp, TSUN, noteTemp[TSUN] },
-		{ STATS_OBJ_Temp, TSUNOUTG, noteTemp[TSUNOUTG] },
-		{ STATS_OBJ_PressTemp, PEVA, "Температура кипения" },
-		{ STATS_OBJ_PressTemp, PCON, "Температура конденсации" },
-		{ STATS_OBJ_Flow, FLOWEVA, noteFrequency[FLOWEVA] },
-		{ STATS_OBJ_Flow, FLOWCON, noteFrequency[FLOWCON] },
-		{ STATS_OBJ_EEV, STATS_EEV_Percent, "Положение ЭРВ, %" },
-		{ STATS_OBJ_EEV, STATS_EEV_OverHeat, "Перегрев" },
-		{ STATS_OBJ_EEV, STATS_EEV_OverCool, "Переохлаждение" },
-		{ STATS_OBJ_Power, 0, "Потребление, кВт" },
-		{ STATS_OBJ_Power_OUT, 0, "Выработка, кВт" },
-		{ STATS_OBJ_COP_Full, 0, "COP" },
-		{ STATS_OBJ_Temp, TKITCHEN, noteTemp[TKITCHEN] },
-		{ STATS_OBJ_Temp, TFL2BEDR, noteTemp[TFL2BEDR] },
-		{ STATS_OBJ_Temp, TFL2TV, noteTemp[TFL2TV] }
-	};
 
 	#define PID_FORMULA2							// Адаптированный алгоритм ПИД Arduino-PID-Library
 	// ------------------- EEV -----------------------------------
@@ -4074,26 +4010,37 @@ const char *noteTemp[] = {"Температура улицы",
 	#define WR_NumLoads				3								// Кол-во нагрузок (1..8)
 //	#define WR_CurrentSensor_4_20mA	IWR								// Использовать аналоговый датчик тока с выходом 4-20mA, номер ADC датчика
 	#define WR_PowerMeter_Modbus	3								// (0xF8) Использовать счетчик PZEM-004T Modbus для получения мощности, адрес
-	#define WR_PowerMeter_ModbusReg 0x0003							// Адрес регистра мощности (32b)
+	#define WR_PowerMeter_ModbusReg 0x0003							// Адрес регистра мощности (32b), десятые Вт
 #ifndef TEST_BOARD
 	const int8_t WR_Load_pins[]	=	{ PIN_DEVICE_RBOILER, 33, -1 };	// [<0] - реле по HTTP, для PWM нагрузки пины должны быть PWM/TIMER
 #else
 	const int8_t WR_Load_pins[]	=	{ PIN_DEVICE_RBOILER, -2, -1 };	// [<0] - реле по HTTP, для PWM нагрузки пины должны быть PWM/TIMER
 	#undef HTTP_LowConsumeRequest
 	#undef WR_PowerMeter_Modbus
+	#define IWR 0
+	#define WR_CurrentSensor_4_20mA	IWR
 #endif
-	#define WR_Load_pins_Boiler_INDEX 0								// Индекс бойлера в массиве WR_Load_pins
+	#define WR_Load_pins_Boiler_INDEX 	0							// Индекс бойлера в массиве WR_Load_pins
+	#define WR_Boiler_Hysteresis		100							// Гистерезис бойлера, сотые градуса
+	#define WR_PWM_POWER_MIN			50							// Минимальная мощность для PWM, Вт
 	#define WR_TestAvailablePowerForRelayLoads WR_Load_pins_Boiler_INDEX// Использовать нагрузку PWM для проверки доступной мощности перед включением релейной нагрузки, индекс
-	#define WR_TestAvailablePowerTime 2								// Сколько циклов (WEB0_FREQUENT_JOB_PERIOD) ждать проверки нагрузки
-	#define WR_RELAY_LEVEL_ON		1								// Уровень реле ВКЛ
-	#define WR_PNET_AVERAGE			4								// Размер буфера для усреднения
-	//#define WR_ONE_PERIOD_PWM										// Одно-полупериодный ШИМ, иначе целыми полупериодами
+	#define WR_TestAvailablePowerTime 	2							// Сколько циклов (WEB0_FREQUENT_JOB_PERIOD) ждать проверки нагрузки
+	#define WR_RELAY_LEVEL_ON			1							// Уровень реле ВКЛ
+	#define WR_PNET_AVERAGE				4							// Размер буфера для усреднения
+	#define WR_ONE_PERIOD_PWM										// Одно-полупериодный ШИМ, иначе целыми полупериодами
 #ifdef WR_ONE_PERIOD_PWM
-	#define PWM_WRITE_OUT_FREQ_DEFAULT 100							// Частота вывода PWM, Гц, для функции PWM_Write()
-	#define PWM_WRITE_OUT_RESOLUTION 8								// bits
-	#define WR_ZERO_CROSS_TC_CMR_EEVT TC_CMR_EEVT_TIOB
-	#define WR_ZERO_CROSS_TC_BMR_SET //chTC->TC_BMR |= TC_BMR_TC2XC2S_TCLK2
-	#define WR_ZERO_CROSS_PERIPH PIO_PERIPH_B
+	#define PWM_WRITE_OUT_FREQ_DEFAULT	100							// Частота вывода PWM, Гц, для функции PWM_Write()
+	#define PWM_WRITE_OUT_RESOLUTION 	8							// bits
+	#define PWM_ACCURATE_POWER										// Точный расчет мощности
+#ifdef PWM_ACCURATE_POWER
+	#define PWM_CALC_POWER_ARRAY		1							// Расчет массива точной мощности, 1 - Сбрасывать мощность между шагами, 2 - нет
+	#define PWM_CALC_POWER_SW_SKIP		1							// Сколько значений пропускать после изменения мощности
+	const uint8_t PWM_POWER_ARRAY[101] = { 255,232,224,218,214,210,208,205,202,200,197,195,193,191,189,188,186,184,182,181,179,177,176,174,172,171,170,169,167,166,165,163,162,161,160,159,157,156,154,153,152,151,150,149,148,146,145,144,142,141,139,138,137,135,134,132,131,130,128,127,125,124,122,121,119,118,117,115,113,112,111,110,109,107,106,104,103,102,100,98,97,95,93,91,89,87,85,83,81,78,76,72,69,65,61,54,46,35,20,0 ,0 };
+#endif
+	#define WR_ZERO_CROSS_EDGE			TC_CMR_EEVTEDG_RISING		// для PIN_PWM_ZERO_CROSS
+	#define WR_ZERO_CROSS_TC_CMR_EEVT 	TC_CMR_EEVT_TIOB
+	#define WR_ZERO_CROSS_TC_BMR_SET 	//chTC->TC_BMR |= TC_BMR_TC2XC2S_TCLK2
+	#define WR_ZERO_CROSS_PERIPH 		PIO_PERIPH_B
 #else
 	#define PWM_WRITE_OUT_FREQ_DEFAULT 1							// Частота вывода PWM, Гц, для функции PWM_Write()
 	#define PWM_WRITE_OUT_RESOLUTION 6								// bits
@@ -4114,6 +4061,87 @@ const char *noteTemp[] = {"Температура улицы",
 	#define WEB0_FREQUENT_JOB_PERIOD 	1500	 		// Периодичность важных функций в задаче WEB0, мс
 #endif
 	#define WEB0_OTHER_JOB_PERIOD    	10000   		// Периодичность других функций внутри задачи WEB0, мс
+
+	#define WEATHER_FORECAST							// Корректировка ночного нагрева бойлера по прогнозу погоды
+	#define WF_ForecastHour				5				// Час, когда запрашивать прогноз
+	#define WF_ForecastAggregateHours	5				// За сколько часов брать среднее
+	#define WF_ForecastAfterSunrise		2*60*60 		// Через сколько времени после восхода смотреть прогноз, сек
+	#define WF_BOILER_MAX_CLOUDS		90				// Ниже этой облачности начинаем корректировать температуру бойлера, %
+	//                                   янв, фев, мар, апр, май, июн, июл, авг, сен, окт, ноя, дек
+	const uint8_t WF_SunByMonth[12] = 	{ 40,  25,  10,   0,   0,   0,   0,   0,  20,  35,  50,  60 };	// + к облачности, %
+
+	// Графики в памяти
+	Charts_Mod_setup ChartsModSetup[] = {
+#ifdef WATTROUTER
+		{ STATS_OBJ_WattRouter, 0 },
+#else
+		{ STATS_OBJ_Temp, TOUT },
+#endif
+		{ STATS_OBJ_Temp, TIN },
+		{ STATS_OBJ_Temp, TBOILER },
+		{ STATS_OBJ_Temp, TCOMP },
+		{ STATS_OBJ_Temp, TEVAING },
+		{ STATS_OBJ_Temp, TEVAOUTG },
+		{ STATS_OBJ_Temp, TCONING },
+		{ STATS_OBJ_Temp, TCONOUTG },
+		{ STATS_OBJ_Temp, TEVAOUT },
+		{ STATS_OBJ_Temp, TCONOUT },
+		{ STATS_OBJ_Temp, TSUN },
+		{ STATS_OBJ_Temp, TSUNOUTG },
+		{ STATS_OBJ_Flow, FLOWEVA },
+		{ STATS_OBJ_Flow, FLOWCON },
+		//{ STATS_OBJ_Press, PGEO },
+		{ STATS_OBJ_Press, POUT },
+		{ STATS_OBJ_PressTemp, PEVA },
+		{ STATS_OBJ_PressTemp, PCON }
+	};
+	const Charts_Const_setup ChartsConstSetup[] = {
+		{ STATS_OBJ_EEV, "ЭРВ" },
+		{ STATS_OBJ_Overheat, "Перегрев" },
+		{ STATS_OBJ_Overheat2, "Перегрев на входе компрессора" },
+		{ STATS_OBJ_Compressor, "Частота, Гц" },
+		//{ STATS_OBJ_Power_FC, "Мощность компрессора" },
+		{ STATS_OBJ_Power, "Потребляемая мощность" },
+		{ STATS_OBJ_COP_Full, "COP" }
+	};
+	const Charts_Const_setup ChartsOnFlySetup[] = {
+		{ STATS_OBJ_Overcool, "Переохлаждение" }, // T[PCON] - TCONOUT
+		{ STATS_OBJ_TCOMP_TCON, "Нагнетание - Конденсация" }, // TCOMP - TCON
+		{ STATS_OBJ_Delta_GEO, "Дельта температур геоконтура" }, // TEVAING - TEVAOUTG
+		{ STATS_OBJ_Delta_OUT, "Дельта температур выхода" }, // TCONOUTG - TCONING
+		{ STATS_OBJ_Power_GEO, "Мощность геоконтура" }, // (TEVAOUTG - TEVAING) * FLOWEVA / kfCapacity
+		{ STATS_OBJ_Power_OUT, "Выходная мощность" } // (TCONOUTG - TCONING) * FLOWCON / kfCapacity
+	};
+
+	// История (графики) на SD карте
+	const History_setup HistorySetup[] = {
+		{ STATS_OBJ_Compressor, 0, "Компрессор, Гц" },
+		{ STATS_OBJ_Temp, TOUT, noteTemp[TOUT] },
+		{ STATS_OBJ_Temp, TIN, noteTemp[TIN] },
+		{ STATS_OBJ_Temp, TBOILER, noteTemp[TBOILER] },
+		{ STATS_OBJ_Temp, TCOMP, noteTemp[TCOMP] },
+		{ STATS_OBJ_Temp, TEVAING, noteTemp[TEVAING] },
+		{ STATS_OBJ_Temp, TEVAOUTG, noteTemp[TEVAOUTG] },
+		{ STATS_OBJ_Temp, TCONING, noteTemp[TCONING] },
+		{ STATS_OBJ_Temp, TCONOUTG, noteTemp[TCONOUTG] },
+		{ STATS_OBJ_Temp, TEVAOUT, noteTemp[TEVAOUT] },
+		{ STATS_OBJ_Temp, TCONOUT, noteTemp[TCONOUT] },
+		{ STATS_OBJ_Temp, TSUN, noteTemp[TSUN] },
+		{ STATS_OBJ_Temp, TSUNOUTG, noteTemp[TSUNOUTG] },
+		{ STATS_OBJ_PressTemp, PEVA, "Температура кипения" },
+		{ STATS_OBJ_PressTemp, PCON, "Температура конденсации" },
+		{ STATS_OBJ_Flow, FLOWEVA, noteFrequency[FLOWEVA] },
+		{ STATS_OBJ_Flow, FLOWCON, noteFrequency[FLOWCON] },
+		{ STATS_OBJ_EEV, STATS_EEV_Percent, "Положение ЭРВ, %" },
+		{ STATS_OBJ_EEV, STATS_EEV_OverHeat, "Перегрев" },
+		{ STATS_OBJ_EEV, STATS_EEV_OverCool, "Переохлаждение" },
+		{ STATS_OBJ_Power, 0, "Потребление, кВт" },
+		{ STATS_OBJ_Power_OUT, 0, "Выработка, кВт" },
+		{ STATS_OBJ_COP_Full, 0, "COP" },
+		{ STATS_OBJ_Temp, TKITCHEN, noteTemp[TKITCHEN] },
+		{ STATS_OBJ_Temp, TFL2BEDR, noteTemp[TFL2BEDR] },
+		{ STATS_OBJ_Temp, TFL2TV, noteTemp[TFL2TV] }
+	};
 
 
 #endif  // CONFIG_7
