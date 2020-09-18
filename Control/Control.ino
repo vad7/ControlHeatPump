@@ -811,8 +811,7 @@ void vWeb0(void *)
 										if(curr == chg) break;
 										curr -= chg;
 									} else {
-										if(WR.LoadPower[i] - WR.LoadHist > curr || (WR_SwitchTime[i] && rtcSAM3X8.unixtime() - WR_SwitchTime[i] <= WR.TurnOnPause))
-											continue;
+										if(WR.LoadPower[i] > curr || (WR_SwitchTime[i] && rtcSAM3X8.unixtime() - WR_SwitchTime[i] <= WR.TurnOnPause)) continue;
 										WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
 										WR_Switch_Load(i, 1);
 										curr -= WR.LoadPower[i];
@@ -875,7 +874,7 @@ void vWeb0(void *)
 						if(need_average) {
 							if(WR_Pnet != -32768 && /*abs*/(pnet - WR_Pnet) > WR_SKIP_EXTREMUM) {
 								WR_Pnet = -32768;
-								if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf("WR: Skip %d\n", pnet);
+								if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf_time("WR: Skip %d\n", pnet);
 								break;
 							}
 						}
@@ -895,8 +894,8 @@ void vWeb0(void *)
 							WR_Pnet = pnet;
 					}
 					// проверка перегрузки
-					pnet = WR_Pnet - WR.MinNetLoad;
-					if(pnet > 0) { // Потребление из сети больше - уменьшаем нагрузку
+					if(WR_Pnet - WR.MinNetLoad > 0) { // Потребление из сети больше - уменьшаем нагрузку
+						pnet = WR_Pnet - WR.MinNetLoad / 2;
 						uint8_t reserv = 255;
 						uint8_t mppt = 255;
 						for(int8_t i = WR_NumLoads-1; i >= 0; i--) {
@@ -917,9 +916,7 @@ void vWeb0(void *)
 #endif
 							if(GETBIT(WR.Loads_PWM, i)) {
 								int chg = WR_LoadRun[i];
-								if(chg > pnet) {
-									if(chg - pnet > WR_PWM_POWER_MIN) chg = pnet;
-								}
+								if(chg > pnet && chg - pnet > WR_PWM_POWER_MIN) chg = pnet;
 								WR_Change_Load_PWM(i, WR_Adjust_PWM_delta(i, -chg));
 								if(pnet == chg) break;
 								pnet -= chg;
@@ -1113,13 +1110,16 @@ void vWeb0(void *)
 #endif   // MQTT
 
 #ifdef WEATHER_FORECAST
-			if(rtcSAM3X8.get_days() != WF_Day && rtcSAM3X8.get_hours() == WF_ForecastHour && strlen(HP.Option.WF_ReqServer)) {
-				active = false;
-				int err = Send_HTTP_Request(HP.Option.WF_ReqServer, HP.Option.WF_ReqText, 4);
-				if(err) {
-					if(HP.get_NetworkFlags() & (1<<fWebFullLog)) journal.jprintf("WF: Request Error %d\n", err);
-				} else if(WF_ProcessForecast(Socket[MAIN_WEB_TASK].outBuf) == OK) {
-					WF_Day = rtcSAM3X8.get_days();
+			if(rtcSAM3X8.get_days() != WF_Day) {
+				WF_BoilerTargetPercent = 100;
+				if(rtcSAM3X8.get_hours() == WR.WF_Hour && strlen(HP.Option.WF_ReqServer)) {
+					if(!active) WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+					int err = Send_HTTP_Request(HP.Option.WF_ReqServer, HP.Option.WF_ReqText, 4);
+					if(err != 0) {
+						if((HP.get_NetworkFlags() & (1<<fWebFullLog)) || rtcSAM3X8.get_minutes() == 59) journal.jprintf_time("WF: Request Error %d\n", err);
+					} else if(WF_ProcessForecast(Socket[MAIN_WEB_TASK].outBuf) == OK) {
+						WF_Day = rtcSAM3X8.get_days();
+					}
 				}
 			}
 #endif
@@ -1204,9 +1204,6 @@ void vReadSensor(void *)
 		for(i = 0; i < INUMBER; i++) HP.sInput[i].Read();                // Прочитать данные сухой контакт
 #ifdef SGENERATOR
 		if(GETBIT(HP.Option.flags2, f2BackupPowerAuto)) HP.check_fBackupPower();
-#endif
-#ifdef AUTO_START_GENERATOR
-		if(GETBIT(HP.Option.flags, fBackupPower) && HP.is_compressor_on()) HP.dRelay[RGEN].set_ON(); // Не даем генератору выключиться
 #endif
 		for(i = 0; i < FNUMBER; i++) HP.sFrequency[i].Read();			// Получить значения датчиков потока
 

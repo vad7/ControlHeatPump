@@ -24,7 +24,7 @@
 #include "Util.h"
 
 // ОПЦИИ КОМПИЛЯЦИИ ПРОЕКТА -------------------------------------------------------
-#define VERSION			"1.096"				// Версия прошивки
+#define VERSION			"1.098"				// Версия прошивки
 #define VER_SAVE		147					// Версия формата сохраняемых данных в I2C память
 #ifndef UART_SPEED
 #define UART_SPEED		115200				// Скорость отладочного порта
@@ -754,6 +754,7 @@ const char *option_WR_fActive			= {"WON"};
 const char *option_WR_PWM_Freq			= {"WF"};
 const char *option_WR_PWM_FullPowerTime = {"WFPT"};
 const char *option_WR_PWM_FullPowerLimit= {"WFPL"};
+const char *option_WR_WF_Hour			= {"WFH"};
 
 // Отопление/охлаждение параметры
 const char *hp_RULE      = {"RULE"};             // алгоритм работы

@@ -817,13 +817,14 @@ void HeatPump::resetSettingHP()
     SETBIT0(Option.flags, fBackupPower); // Использование резервного питания от генератора (ограничение мощности) 
 	Option.maxBackupPower=3000;          // Максимальная мощность при питании от генератора (Вт)
 #ifdef WATTROUTER
-	WR.MinNetLoad = 150;
-	WR.NextSwitchPause = 20;
-	WR.TurnOnMinTime = 18;
+	WR.MinNetLoad = 50;
+	WR.NextSwitchPause = 10;
+	WR.TurnOnMinTime = 9;
 	WR.TurnOnPause = 300;
-	WR.LoadAdd = 80;
-	WR.LoadHist = 50;
-	WR.PWM_Freq = 3;
+	WR.LoadAdd = 100;
+	WR.LoadHist = 100;
+	WR.PWM_Freq = PWM_WRITE_OUT_FREQ_DEFAULT;
+	WR.WF_Hour = 5;
 #endif
 
 }
@@ -1140,13 +1141,18 @@ boolean HeatPump::set_optionHP(char *var, float x)
 	else if(strcmp(var,option_WR_PWM_FullPowerLimit)==0){ WR.PWM_FullPowerLimit = n; return true; }
 	else if(strcmp(var,option_WR_fLog)==0)         { WR.Flags = (WR.Flags & ~(1<<WR_fLog)) | ((n!=0)<<WR_fLog); return true; }
 	else if(strcmp(var,option_WR_fLogFull)==0)     { WR.Flags = (WR.Flags & ~(1<<WR_fLogFull)) | ((n!=0)<<WR_fLogFull); return true; }
+	else if(strcmp(var,option_WR_WF_Hour)==0)      { if(n >= 0 && n <= 23) { WR.WF_Hour = n; return true; } else return false; }
 	else if(strcmp(var,option_WR_PWM_Freq)==0)     {
+#ifdef WR_ONE_PERIOD_PWM
+		WR.PWM_Freq = PWM_WRITE_OUT_FREQ_DEFAULT;
+#else
 		if(WR.PWM_Freq != n) {
 			WR.PWM_Freq = n;
 			memset(TCChanEnabled, 0, sizeof_TCChanEnabled);
 			PWMEnabled = 0;
 			WR_Refresh |= WR_fLoadMask;
 		}
+#endif
 		return true;
 	} else if(strcmp(var,option_WR_fActive)==0) {
 		WR.Flags = (WR.Flags & ~(1<<WR_fActive)) | ((n!=0)<<WR_fActive);
@@ -1252,6 +1258,7 @@ char* HeatPump::get_optionHP(char *var, char *ret)
 	else if(strcmp(var, option_WR_fLog) == 0)      { if(GETBIT(WR.Flags, WR_fLog)) return strcat(ret, (char*) cOne); else return strcat(ret, (char*) cZero); }
 	else if(strcmp(var, option_WR_fLogFull) == 0)  { if(GETBIT(WR.Flags, WR_fLogFull)) return strcat(ret, (char*) cOne); else return strcat(ret, (char*) cZero); }
 	else if(strcmp(var, option_WR_fActive) == 0)   { if(GETBIT(WR.Flags, WR_fActive)) return strcat(ret, (char*) cOne); else return strcat(ret, (char*) cZero); }
+	else if(strcmp(var, option_WR_WF_Hour) == 0)   { return _itoa(WR.WF_Hour, ret); }
 #endif
 	return strcat(ret,(char*)cInvalid);
 }
@@ -1550,7 +1557,7 @@ int16_t HeatPump::get_boilerTempTarget()
 			ret += Prof.Boiler.add_delta_temp;
 	}
 #if defined(WATTROUTER) && defined(WEATHER_FORECAST) && defined(WR_Load_pins_Boiler_INDEX)
-	if(h <= TARIF_NIGHT_END && GETBIT(WR.Loads, WR_Load_pins_Boiler_INDEX) && GETBIT(WR.Flags, WR_fActive) && WF_BoilerTargetPercent < 99) {
+	if(h <= TARIF_NIGHT_END && WF_BoilerTargetPercent < WF_BOILER_MAX_CLOUDS && GETBIT(WR.Loads, WR_Load_pins_Boiler_INDEX) && GETBIT(WR.Flags, WR_fActive)) {
 		ret = Prof.Boiler.WF_MinTarget + (ret - Prof.Boiler.WF_MinTarget) * WF_BoilerTargetPercent / 100;
 		if(ret < Prof.Boiler.tempRBOILER) ret = Prof.Boiler.tempRBOILER;
 	}
@@ -3094,18 +3101,20 @@ xNextStop:
 	}
 
 #ifdef AUTO_START_GENERATOR
-	if(GETBIT(Option.flags, fBackupPower) && dFC.get_state() == ERR_LINK_FC) {
-		dRelay[RGEN].set_ON();
-		_delay(AUTO_START_GENERATOR * 1000); // Задержка на запуск, в том числе и для прогрева генератора
-		for(uint16_t i = AUTO_START_GEN_TIMEOUT / (FC_TIME_READ / 1000); i > 0; i--) {
-			if(NO_Power) return;
-			if(is_next_command_stop()) goto xNextStop;
-			if(dFC.get_err() == OK) break;
-			_delay(FC_TIME_READ);
-		}
-		if(dFC.get_err() != OK) {
-			set_Error(ERR_FC_NO_LINK, (char*) __FUNCTION__);
-			return;
+	if(GETBIT(Option.flags, fBackupPower)) {
+		dRelay[RGEN].set_ON(); // Включаем или не даем выключиться
+		if(dFC.get_state() == ERR_LINK_FC) {
+			_delay(AUTO_START_GENERATOR * 1000); // Задержка на запуск, в том числе и для прогрева генератора
+			for(uint16_t i = AUTO_START_GEN_TIMEOUT / (FC_TIME_READ / 1000); i > 0; i--) {
+				if(NO_Power) return;
+				if(is_next_command_stop()) goto xNextStop;
+				if(dFC.get_err() == OK) break;
+				_delay(FC_TIME_READ);
+			}
+			if(dFC.get_err() != OK) {
+				set_Error(ERR_FC_NO_LINK, (char*) __FUNCTION__);
+				return;
+			}
 		}
 	}
 #endif
