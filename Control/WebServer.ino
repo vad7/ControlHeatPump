@@ -892,14 +892,14 @@ void parserGET(uint8_t thread, int8_t )
 					}
 				}
 			}
-			// "get_TrgT" -> "x.x / y.y", "get_TrgT(1)" -> "x.x"
+			// "get_TrgT" -> "x.xx / y.yy", "get_TrgT(1)" -> "x.xx"
 			if(HP.get_modeHouse() == pOFF) strcat(strReturn, "-");
 			else {
-				HP.getTargetTempStr(strReturn + m_strlen(strReturn));
+				HP.getTargetTempStr2(strReturn + m_strlen(strReturn));
 				if(HP.get_modeHouseSettings()->Rule != pHYSTERESIS && str[8] != '(') {
 					strcat(strReturn, " / ");
 					strReturn = dptoa(strReturn + m_strlen(strReturn), HP.CalcTargetPID(*HP.get_modeHouseSettings()), 2);
-					*--strReturn = '\0';
+					//*--strReturn = '\0';
 				}
 			}
 			ADD_WEBDELIM(strReturn); continue;
@@ -2336,15 +2336,28 @@ x_get_aTemp:
 					if(p < WR_NumLoads) {
 						if(*str == 'L') { // get_WRL(n)
 							if(i) {
-								int16_t val = pm;
-								if(GETBIT(WR.Loads_PWM, p)) WR_Change_Load_PWM(p, val - WR_LoadRun[p]);
-								else {
-									if(WR_Load_pins[p] < 0) { // HTTP
-										if(val < 0) val = 0; else if(val > 0) val = WR.LoadPower[p];
-										WR_Refresh |= (1<<p);
-										WR_LoadRun[p] = val;
-										WR_SwitchTime[p] = WR_LastSwitchTime = rtcSAM3X8.unixtime();
-									} else WR_Switch_Load(p, val > 0);
+#ifdef WR_Boiler_Substitution_INDEX
+								if(p == (!digitalReadDirect(PIN_WR_Boiler_Substitution) ? WR_Boiler_Substitution_INDEX : WR_Load_pins_Boiler_INDEX)) { // switch
+									uint8_t idx = p == WR_Boiler_Substitution_INDEX ? WR_Load_pins_Boiler_INDEX : WR_Boiler_Substitution_INDEX;
+									if(WR_LoadRun[idx] > 0) {
+										if(GETBIT(WR.PWM_Loads, idx)) WR_Change_Load_PWM(idx, -32768); else WR_Switch_Load(idx, 0);
+										WR_SwitchTime[idx] = rtcSAM3X8.unixtime();
+										//_delay(10); // 1/100 Hz
+									}
+									digitalWriteDirect(PIN_WR_Boiler_Substitution, !digitalReadDirect(PIN_WR_Boiler_Substitution));
+								} else
+#endif
+								{
+									int16_t val = pm;
+									if(GETBIT(WR.PWM_Loads, p)) WR_Change_Load_PWM(p, val - WR_LoadRun[p]);
+									else {
+										if(WR_Load_pins[p] < 0) { // HTTP
+											if(val < 0) val = 0; else if(val > 0) val = WR.LoadPower[p];
+											WR_Refresh |= (1<<p);
+											WR_LoadRun[p] = val;
+											WR_SwitchTime[p] = WR_LastSwitchTime = rtcSAM3X8.unixtime();
+										} else WR_Switch_Load(p, val > 0);
+									}
 								}
 							}
 							_itoa(WR_LoadRun[p], strReturn);
@@ -2357,17 +2370,35 @@ x_get_aTemp:
 #ifdef WR_Load_pins_Boiler_INDEX
 							if(p == WR_Load_pins_Boiler_INDEX) strcat(strReturn, "(B)");
 #endif
+#ifdef WR_Boiler_Substitution_INDEX
+							if(p == WR_Boiler_Substitution_INDEX) m_snprintf(strReturn + strlen(strReturn), 20, "(D%d)", PIN_WR_Boiler_Substitution);
+#endif
 						} else if(*str == 'C') { // get_WRC(n)
-							if(GETBIT(WR.Loads_PWM, p))	{
+							if(GETBIT(WR.PWM_Loads, p))	{
 								WR_Calc_Power_Array_Start(p);
 								strcat(strReturn, "1");
 							}
 						} else { // get_WR(n)
+xget_WR:
 							if(p == 0) { // get_WR(0)
+								if(i) { // <ip>/&set_WR(0=x) -> set power(= x / 10) + set MPPT flag(WR_Check_MPPT() = x % 10)
+#ifdef WR_PowerMeter_Modbus
+									if(HP.get_testMode() != NORMAL) WR_PowerMeter_Power = pm;
+#endif
+								}
 								if(WR_Pnet == -32768) strcat(strReturn, "-"); else _itoa(WR_Pnet, strReturn);
+							} else if(p == 1) { // get_WR(1)
+#ifdef WR_Boiler_Substitution_INDEX
+								bool on = digitalReadDirect(PIN_WR_Boiler_Substitution);
+								strReturn += strlen(strReturn);
+								*strReturn++ = '0' + (on ? WR_Boiler_Substitution_INDEX : WR_Load_pins_Boiler_INDEX);
+								*strReturn++ = '0' + (on ? WR_Load_pins_Boiler_INDEX : WR_Boiler_Substitution_INDEX);
+								*strReturn = '\0';
+#endif
 							}
 						}
-					} else strcat(strReturn,"E08"); // выход за диапазон, значение не установлено
+					} else if(*str == '(') goto xget_WR;
+					else strcat(strReturn,"E08"); // выход за диапазон, значение не установлено
 					ADD_WEBDELIM(strReturn);
 					continue;
 				}

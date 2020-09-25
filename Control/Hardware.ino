@@ -539,8 +539,17 @@ int8_t devRelay::set_Relay(int8_t r)
 		if(number == R4WAY) r = !r;
 #endif
 #ifdef WR_Load_pins_Boiler_INDEX
-		if(number == RBOILER) WR_Change_Load_PWM(WR_Load_pins_Boiler_INDEX, r ? 32767 : -32768);
-		else
+		if(number == RBOILER) {
+#ifdef PIN_WR_Boiler_Substitution
+			if(r && digitalReadDirect(PIN_WR_Boiler_Substitution)) { // выключить подмену бойлера
+				WR_Change_Load_PWM(WR_Boiler_Substitution_INDEX, -32768);
+				_delay(10); // 1/100 Hz
+				digitalWriteDirect(PIN_WR_Boiler_Substitution, 0);
+				_delay(WR_Boiler_Substitution_swtime);
+			}
+#endif
+			WR_Change_Load_PWM(WR_Load_pins_Boiler_INDEX, r ? 32767 : -32768);
+		} else
 #endif
 			digitalWriteDirect(pin, r);
 	}
@@ -1039,8 +1048,11 @@ xSecond_sub_1:				if(pidw.hyst[0] > 0) {
             pidw.Kp_dmin=_data.pid2_delta; // передать параметр - уменьшение пропорциональной при определенной ошибке
 			newEEV = updatePID(newEEV, _data.pid, pidw)/100; // Рассчитaть итерацию: Перевод в шаги (выход ПИДА в сотых) + округление вниз
 	//		newEEV = round_div_int32(updatePID(newEEV, _data.pid, pidw), 100); // Рассчитaть итерацию: Перевод в шаги (выход ПИДА в сотых) + округление здесь 0.5 это один шаг
-			if ((abs(newEEV)>_data.pid_max)&&(_data.pid_max>0)) {if (newEEV>0) newEEV=EEV+_data.pid_max; else newEEV=EEV-_data.pid_max;} else newEEV+=EEV;   // Ограничение пида +  добавление предудущего значения
 #endif
+			// Ограничение пида +  добавление предудущего значения
+			if(newEEV > _data.pid_max) newEEV = _data.pid_max;
+			else if(newEEV < -_data.pid_max) newEEV = -_data.pid_max;
+			newEEV += EEV;
 			// Проверка управляющего воздействия, возможно отказ ЭРВ
 			//      SerialDbg.print("errPID="); SerialDbg.print(errPID,4);SerialDbg.print(" newEEV=");SerialDbg.print(newEEV);SerialDbg.print(" EEV=");SerialDbg.println(EEV);
 		}
@@ -1553,15 +1565,15 @@ int8_t devSDM::get_readState(uint8_t group)
 		uint16_t tmp16[2];
 	};
 #else
-	static float tmp;
+	float tmp;
 #endif
 	if(!GETBIT(flags,fSDM) || !GETBIT(flags,fSDMLink)
 #ifdef USE_UPS
 		|| HP.NO_Power
 #endif
 		) {   // Если нет счетчика или нет связи выходим
-		AcPower = 0.0f;
-		Voltage = 0.0f;
+		AcPower = 0;
+		Voltage = 0;
 		return err;
 	}
 	// Чтение состояния счетчика
@@ -1572,7 +1584,7 @@ int8_t devSDM::get_readState(uint8_t group)
 		if(group == 0) {
 #ifdef USE_PZEM004T
 			Modbus.readInputRegisters32(SDM_MODBUS_ADR, SDM_AC_POWER, &tmp);
-			if(_err == OK) AcPower = (float)tmp / 10.0f; else goto xErr;
+			if(_err == OK) AcPower = tmp / 10; else goto xErr;
 #else
 			_err = Modbus.readInputRegistersFloat(SDM_MODBUS_ADR, SDM_AC_POWER, &tmp);
 			if(_err == OK) AcPower = tmp; else goto xErr;
@@ -1598,7 +1610,7 @@ int8_t devSDM::get_readState(uint8_t group)
 			if(_err==OK) { Voltage = tmp16[0] / 10; group = 1; } else goto xErr;
 #else
 			_err = Modbus.readInputRegistersFloat(SDM_MODBUS_ADR, SDM_VOLTAGE, &tmp);   // Напряжение
-			if(_err==OK) { Voltage=tmp; group = 1; } else goto xErr;
+			if(_err==OK) { Voltage = tmp; group = 1; } else goto xErr;
 #endif
 #endif
 		}

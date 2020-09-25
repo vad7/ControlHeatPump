@@ -496,7 +496,7 @@ x_Error:
 #endif
 #ifdef WATTROUTER
 		} else if(type == SAVE_TYPE_Wattrouter) {
-			load_struct((uint8_t*)&WR, &buffer, sizeof(WR));
+			load_struct((uint8_t*)&WR, &buffer, sizeof(WR)); WR_Loads = WR.Loads;
 #endif
 		} else if(type == SAVE_TYPE_END) {
 			break;
@@ -734,7 +734,7 @@ void HeatPump::resetSettingHP()
 	num_resPing = 0;                                // число не прошедших пингов
 
 	fullCOP = -1000;                                // Полный СОР  сотые -1000 признак невозможности расчета
-	COP = -1000;                                    // Чистый COP сотые  -1000 признак невозможности расчета
+//	COP = -1000;                                    // Чистый COP сотые  -1000 признак невозможности расчета
 
 	// Инициализациия различных времен
 	DateTime.saveTime = 0;                          // дата и время сохранения настроек в eeprom
@@ -821,7 +821,7 @@ void HeatPump::resetSettingHP()
 	WR.NextSwitchPause = 10;
 	WR.TurnOnMinTime = 9;
 	WR.TurnOnPause = 300;
-	WR.LoadAdd = 100;
+	WR.LoadAdd = 150;
 	WR.LoadHist = 100;
 	WR.PWM_Freq = PWM_WRITE_OUT_FREQ_DEFAULT;
 	WR.WF_Hour = 5;
@@ -1113,14 +1113,18 @@ boolean HeatPump::set_optionHP(char *var, float x)
 	else if(strncmp(var, option_WR_Loads, sizeof(option_WR_Loads)-1) == 0) {
 	   uint8_t bit = var[sizeof(option_WR_Loads)-1] - '0';
 	   if(bit < WR_NumLoads) {
-		   WR.Loads = (WR.Loads & ~(1<<bit)) | (n == 0 ? 0 : (1<<bit));
+		   WR.Loads = WR_Loads = (WR_Loads & ~(1<<bit)) | (n == 0 ? 0 : (1<<bit));
 		   //if(GETBIT(WR.Flags, WR_fActive)) WR_Refresh = true;
 		   return true;
 	   }
 	} else if(strncmp(var, option_WR_Loads_PWM, sizeof(option_WR_Loads_PWM)-1) == 0) {
 	   uint8_t bit = var[sizeof(option_WR_Loads_PWM)-1] - '0';
 	   if(bit < WR_NumLoads) {
-		   WR.Loads_PWM = (WR.Loads_PWM & ~(1<<bit)) | (n == 0 ? 0 : (1<<bit));
+#ifdef WR_Boiler_Substitution_INDEX
+		   if(bit == WR_Boiler_Substitution_INDEX) return true;
+		   if(bit == WR_Load_pins_Boiler_INDEX) WR.PWM_Loads = (WR.PWM_Loads & ~(1<<WR_Boiler_Substitution_INDEX)) | (n == 0 ? 0 : (1<<WR_Boiler_Substitution_INDEX));
+#endif
+		   WR.PWM_Loads = (WR.PWM_Loads & ~(1<<bit)) | (n == 0 ? 0 : (1<<bit));
 		   //if(GETBIT(WR.Flags, WR_fActive)) WR_Refresh = true;
 		   return true;
 	   }
@@ -1128,7 +1132,7 @@ boolean HeatPump::set_optionHP(char *var, float x)
 	   uint8_t bit = var[sizeof(option_WR_LoadPower)-1] - '0';
 	   if(bit < WR_NumLoads) {
 		   WR.LoadPower[bit] = n;
-		   if(GETBIT(WR.Loads_PWM, bit)) WR_Refresh |= (1<<bit);
+		   if(GETBIT(WR.PWM_Loads, bit)) WR_Refresh |= (1<<bit);
 		   return true;
 	   }
 	} else if(strcmp(var,option_WR_MinNetLoad)==0) { WR.MinNetLoad = n; return true; }
@@ -1234,12 +1238,12 @@ char* HeatPump::get_optionHP(char *var, char *ret)
 	else if(strncmp(var, option_WR_Loads, sizeof(option_WR_Loads)-1)==0) {
 	   uint8_t bit = var[sizeof(option_WR_Loads)-1] - '0';
 	   if(bit < WR_NumLoads) {
-		   return strcat(ret,(char*)(GETBIT(WR.Loads, bit) ? cOne : cZero));
+		   return strcat(ret,(char*)(GETBIT(WR_Loads, bit) ? cOne : cZero));
 	   }
 	} else if(strncmp(var, option_WR_Loads_PWM, sizeof(option_WR_Loads_PWM)-1)==0) {
 	   uint8_t bit = var[sizeof(option_WR_Loads_PWM)-1] - '0';
 	   if(bit < WR_NumLoads && WR_Load_pins[bit] > 0) {
-		   return strcat(ret,(char*)(GETBIT(WR.Loads_PWM, bit) ? cOne : cZero));
+		   return strcat(ret,(char*)(GETBIT(WR.PWM_Loads, bit) ? cOne : cZero));
 	   }
 	} else if(strncmp(var, option_WR_LoadPower, sizeof(option_WR_LoadPower)-1)==0) {
 	   uint8_t bit = var[sizeof(option_WR_LoadPower)-1] - '0';
@@ -1360,7 +1364,7 @@ void  HeatPump::updateChart()
 		else if(ChartsConstSetup[i].object == STATS_OBJ_Power_FC) Charts[j].add_Point(dFC.get_power() / 10);
 		else if(ChartsConstSetup[i].object == STATS_OBJ_Current_FC) Charts[j].add_Point(dFC.get_current());
 #ifdef USE_ELECTROMETER_SDM
-		else if(ChartsConstSetup[i].object == STATS_OBJ_Voltage) Charts[j].add_Point(dSDM.get_Voltage() * 100);
+		else if(ChartsConstSetup[i].object == STATS_OBJ_Voltage) Charts[j].add_Point(dSDM.get_voltage() * 100);
 		else if(ChartsConstSetup[i].object == STATS_OBJ_Power) Charts[j].add_Point((int32_t)power220 / 10);
 		else if(ChartsConstSetup[i].object == STATS_OBJ_COP_Full) Charts[j].add_Point(fullCOP);
 #endif
@@ -1508,7 +1512,7 @@ int16_t HeatPump::setTargetTemp(int16_t dt)
 
 int16_t HeatPump::get_targetTempCool()
 {
-	int16_t T;
+	int T;
 	if(get_ruleCool() == pHYBRID) T = Prof.Cool.Temp1;
 	else if(!(GETBIT(Prof.Cool.flags, fTarget))) T = Prof.Cool.Temp1;
 	else T = Prof.Cool.Temp2;
@@ -1518,7 +1522,7 @@ int16_t HeatPump::get_targetTempCool()
 
 int16_t HeatPump::get_targetTempHeat()
 {
-	int16_t T;
+	int T;
 	if(get_ruleHeat() == pHYBRID) T = Prof.Heat.Temp1;
 	else if(!(GETBIT(Prof.Heat.flags, fTarget))) T = Prof.Heat.Temp1;
 	else T = Prof.Heat.Temp2;
@@ -1557,7 +1561,7 @@ int16_t HeatPump::get_boilerTempTarget()
 			ret += Prof.Boiler.add_delta_temp;
 	}
 #if defined(WATTROUTER) && defined(WEATHER_FORECAST) && defined(WR_Load_pins_Boiler_INDEX)
-	if(h <= TARIF_NIGHT_END && WF_BoilerTargetPercent < WF_BOILER_MAX_CLOUDS && GETBIT(WR.Loads, WR_Load_pins_Boiler_INDEX) && GETBIT(WR.Flags, WR_fActive)) {
+	if(h <= TARIF_NIGHT_END && WF_BoilerTargetPercent < WF_BOILER_MAX_CLOUDS && GETBIT(WR_Loads, WR_Load_pins_Boiler_INDEX) && GETBIT(WR.Flags, WR_fActive)) {
 		ret = Prof.Boiler.WF_MinTarget + (ret - Prof.Boiler.WF_MinTarget) * WF_BoilerTargetPercent / 100;
 		if(ret < Prof.Boiler.tempRBOILER) ret = Prof.Boiler.tempRBOILER;
 	}
@@ -1581,6 +1585,23 @@ void HeatPump::getTargetTempStr(char *rstr)
 		return;
 	}
 	*--rstr = '\0';
+}
+
+// Целевая температура в строку, 2 знака после запятой
+void HeatPump::getTargetTempStr2(char *rstr)
+{
+	switch(get_modeHouse())   // проверка отопления
+	{
+	case pHEAT:
+		rstr = dptoa(rstr, get_targetTempHeat(), 2);
+		break;
+	case pCOOL:
+		rstr = dptoa(rstr, get_targetTempCool(), 2);
+		break;
+	default:
+		strcpy(rstr, "-.-");
+		return;
+	}
 }
 
 // --------------------------------------------------------------------------------------------------------
@@ -2314,7 +2335,10 @@ MODE_COMP  HeatPump::UpdateBoiler()
 			return pCOMP_OFF;  // Температура выше целевой температуры БОЙЛЕРА надо выключаться!
 		}
 		// Отслеживание включения
-		if (!onBoiler && T < TRG - (HeatBoilerUrgently ? 10 : Prof.Boiler.dTemp)) {Status.ret=pBh2; return pCOMP_ON;} // Температура ниже гистерезиса надо включаться!
+		if(!onBoiler && T < TRG - (HeatBoilerUrgently ? 10 : Prof.Boiler.dTemp)) { // Температура ниже гистерезиса надо включаться!
+			Status.ret = pBh2;
+			return pCOMP_ON;
+		}
 
 		// дошли до сюда значить сохранение предыдущего состяния, температура в диапазоне регулирования может быть или нагрев или остывание
 		if (onBoiler) {Status.ret=pBh4; return pCOMP_NONE;}  // Если включен принак работы бойлера (трехходовой) значит ПРОДОЛЖНЕНИЕ нагрева бойлера
@@ -2341,7 +2365,8 @@ MODE_COMP  HeatPump::UpdateBoiler()
 			set_HeatBoilerUrgently(false);
 			return pCOMP_OFF;  // Температура выше целевой температуры БОЙЛЕРА надо выключаться!
 		} else if(!onBoiler && T < TRG - (HeatBoilerUrgently ? 10 : Prof.Boiler.dTemp)) { // Отслеживание включения
-			Status.ret=pBp2; return pCOMP_ON; // Достигнут гистерезис и компрессор еще не работает на ГВС - Старт бойлера
+			Status.ret = pBp2;
+			return pCOMP_ON; // Достигнут гистерезис и компрессор еще не работает на ГВС - Старт бойлера
 		} else if (is_compressor_on() &&(!(onBoiler))) return pCOMP_OFF;// компрессор работает, но ГВС греть не надо  - уходим без изменения состояния
 		
 		// ПИД ----------------------------------
@@ -2426,18 +2451,22 @@ MODE_COMP  HeatPump::UpdateBoiler()
 
 		// Дошли до сюда - ПИД на подачу. Компресор работает
 		updatePidBoiler=xTaskGetTickCount();
+		// Одна итерация ПИД регулятора (на выходе: алг.1 - ИЗМЕНЕНИЕ частоты, алг.2 - сама частота)
 #ifdef SUPERBOILER
 		Status.ret=pBp14;
-        int16_t newFC = updatePID((Prof.Boiler.tempPID - PressToTemp(PCON)), Prof.Boiler.pid, pidw); // Одна итерация ПИД регулятора (на выходе ИЗМЕНЕНИЕ частоты)
+        int16_t newFC = updatePID((Prof.Boiler.tempPID - PressToTemp(PCON)), Prof.Boiler.pid, pidw);
 #else
 		Status.ret=pBp12;
-		int16_t newFC = updatePID(Prof.Boiler.tempPID - FEED, Prof.Boiler.pid, pidw);             // Одна итерация ПИД регулятора (на выходе ИЗМЕНЕНИЕ частоты)
+		int16_t newFC = updatePID(Prof.Boiler.tempPID - FEED, Prof.Boiler.pid, pidw);
 #endif
 #ifdef PID_FORMULA2
 		if(newFC > dFC.get_target() + dFC.get_PidFreqStep()) newFC = dFC.get_target() + dFC.get_PidFreqStep(); // На увеличение
-		//else if(newFC < dFC.get_target() - dFC.get_PidFreqStep()) newFC = dFC.get_target() - dFC.get_PidFreqStep(); // На уменьшение
+		else if(newFC < dFC.get_target() - dFC.get_PidMaxStep()) newFC = dFC.get_target() - dFC.get_PidMaxStep(); // На уменьшение
 #else
-		if (newFC>dFC.get_PidFreqStep()) newFC=dFC.get_target()+dFC.get_PidFreqStep(); else newFC +=dFC.get_target(); // Расчет целевой частоты с ограничением на ее рост не более dFC.get_PidFreqStep()
+		// Расчет целевой частоты с ограничением
+		if(newFC > dFC.get_PidFreqStep()) newFC = dFC.get_PidFreqStep();
+		else if(newFC < -dFC.get_PidMaxStep()) newFC = -dFC.get_PidMaxStep();
+		newFC += dFC.get_target();
 #endif
 		if (newFC>dFC.get_maxFreqBoiler())   newFC=dFC.get_maxFreqBoiler();                                                 // ограничение диапазона ОТДЕЛЬНО для ГВС!!!! (меньше мощность)
 		if (newFC<dFC.get_minFreqBoiler())   newFC=dFC.get_minFreqBoiler(); //return pCOMP_OFF;                             // Уменьшать дальше некуда, выключаем компрессор
@@ -2613,13 +2642,17 @@ MODE_COMP HeatPump::UpdateHeat()
 		Status.ret=pHp12;   // Дошли до сюда - ПИД на подачу. Компресор работает
 #endif
 
+		// Одна итерация ПИД регулятора (на выходе: алг.1 - ИЗМЕНЕНИЕ частоты, алг.2 - сама частота)
 		updatePidTime=xTaskGetTickCount();
-		newFC = updatePID(CalcTargetPID(Prof.Heat) - FEED, Prof.Heat.pid, pidw);         // Одна итерация ПИД регулятора (на выходе ИЗМЕНЕНИЕ частоты)
+		newFC = updatePID(CalcTargetPID(Prof.Heat) - FEED, Prof.Heat.pid, pidw);
 #ifdef PID_FORMULA2
 		if(newFC > dFC.get_target() + dFC.get_PidFreqStep()) newFC = dFC.get_target() + dFC.get_PidFreqStep(); // На увеличение
-		//else if(newFC < dFC.get_target() - dFC.get_PidFreqStep()) newFC = dFC.get_target() - dFC.get_PidFreqStep(); // На уменьшение
+		else if(newFC < dFC.get_target() - dFC.get_PidMaxStep()) newFC = dFC.get_target() - dFC.get_PidMaxStep(); // На уменьшение
 #else
-		if (newFC>dFC.get_PidFreqStep()) newFC=dFC.get_target()+dFC.get_PidFreqStep(); else newFC += dFC.get_target(); // Расчет целевой частоты с ограничением на ее рост не более dFC.get_PidFreqStep()
+		// Расчет целевой частоты с ограничением
+		if(newFC > dFC.get_PidFreqStep()) newFC = dFC.get_PidFreqStep();
+		else if(newFC < -dFC.get_PidMaxStep()) newFC = -dFC.get_PidMaxStep();
+		newFC += dFC.get_target();
 #endif
 
 		if (newFC>dFC.get_maxFreq())   newFC=dFC.get_maxFreq();                                                // ограничение диапазона
@@ -2767,15 +2800,19 @@ MODE_COMP HeatPump::UpdateCool()
 		Status.ret=pCp12;   // Дошли до сюда - ПИД на подачу. Компресор работает
 #endif
 
+		// Одна итерация ПИД регулятора (на выходе: алг.1 - ИЗМЕНЕНИЕ частоты, алг.2 - сама частота)
 		updatePidTime=xTaskGetTickCount();
 		newFC = updatePID(FEED - CalcTargetPID(Prof.Cool), Prof.Cool.pid, pidw);      // Одна итерация ПИД регулятора (на выходе ИЗМЕНЕНИЕ частоты)
 #ifdef PID_FORMULA2
 		if(newFC > dFC.get_target() + dFC.get_PidFreqStep()) newFC = dFC.get_target() + dFC.get_PidFreqStep(); // На увеличение
-		//else if(newFC < dFC.get_target() - dFC.get_PidFreqStep()) newFC = dFC.get_target() - dFC.get_PidFreqStep(); // На уменьшение
+		else if(newFC < dFC.get_target() - dFC.get_PidMaxStep()) newFC = dFC.get_target() - dFC.get_PidMaxStep(); // На уменьшение
 #else
-		if (newFC>dFC.get_PidFreqStep()) newFC=dFC.get_target()+dFC.get_PidFreqStep(); else newFC += dFC.get_target(); // Расчет целевой частоты с ограничением на ее рост не более dFC.get_PidFreqStep()
+		// Расчет целевой частоты с ограничением
+		if(newFC > dFC.get_PidFreqStep()) newFC = dFC.get_PidFreqStep();
+		else if(newFC < -dFC.get_PidMaxStep()) newFC = -dFC.get_PidMaxStep();
+		newFC += dFC.get_target();
 #endif
-        
+
 		if (newFC>dFC.get_maxFreqCool())   newFC=dFC.get_maxFreqCool();                                       // ограничение диапазона
 		if (newFC<dFC.get_minFreqCool())   newFC=dFC.get_minFreqCool(); // return pCOMP_OFF;                                              // Уменьшать дальше некуда, выключаем компрессор// newFC=minFreq;
 	    if(GETBIT(Option.flags, fBackupPower) && newFC > dFC.get_maxFreqGen()) newFC = dFC.get_maxFreqGen();
@@ -3787,34 +3824,56 @@ void HeatPump::calculatePower()
 	if (powerGEO<0) powerGEO=0;
 #endif
 
-// Получение мощностей потребления электроэнергии
-	uint16_t fc_pwr = dFC.get_power();  // получить текущую мощность компрессора
+	// Получение мощностей потребления электроэнергии
+	int32_t _power220 = 0;
+#ifdef CORRECT_POWER220_EXCL_RBOILER
+  #ifdef WR_Load_pins_Boiler_INDEX
+   #ifdef WR_Boiler_Substitution_INDEX
+	_power220 -= WR_LoadRun[digitalReadDirect(PIN_WR_Boiler_Substitution) ? WR_Boiler_Substitution_INDEX : WR_Load_pins_Boiler_INDEX];
+   #else
+	_power220 -= WR_LoadRun[WR_Load_pins_Boiler_INDEX];
+   #endif
+  #else
+	if(dRelay[RBOILER].get_Relay()) _power220 -= CORRECT_POWER220_EXCL_RBOILER;
+  #endif
+	if(_power220) _power220 = _power220 * dSDM.get_voltage() / 220;
+#endif
 #ifdef USE_ELECTROMETER_SDM  // Если есть электросчетчик можно рассчитать полное потребление (с насосами)
 	if(dSDM.get_link()) {  // Если счетчик работает (связь не утеряна)
-		power220 = dSDM.get_Power();
-	} else power220 = 0; // связи со счетчиком нет
-#else
-	power220=0; // электросчетчика нет
+		_power220 += dSDM.get_power();
+		if(_power220 < 0) _power220 = 0;
+	}
 #endif
 #ifdef CORRECT_POWER220
-	for(uint8_t i = 0; i < sizeof(correct_power220)/sizeof(correct_power220[0]); i++) if(dRelay[correct_power220[i].num].get_Relay()) power220 += correct_power220[i].value;
+	int32_t corr_power220 = 0;
+	for(uint8_t i = 0; i < sizeof(correct_power220)/sizeof(correct_power220[0]); i++) if(dRelay[correct_power220[i].num].get_Relay()) corr_power220 += correct_power220[i].value;
+	if(corr_power220) {
+		corr_power220 = corr_power220 * dSDM.get_voltage() / 220;
+		_power220 += corr_power220;
+	}
 #endif
 #ifdef ADD_FC_POWER_WHEN_GENERATOR
-	if(GETBIT(Option.flags, fBackupPower)) power220 += fc_pwr;
+	if(GETBIT(Option.flags, fBackupPower)) _power220 += dFC.get_power();  // получить текущую мощность компрессора
 #endif
+	power220 = _power220;
 
-// Расчет КОП
-#ifndef COP_ALL_CALC    // если КОП надо считать не всегда 
-if(is_compressor_on()){      // Если компрессор работает
+	// Расчет COP
+#ifndef COP_ALL_CALC    	// если COP надо считать не всегда
+if(is_compressor_on()){		// Если компрессор работает
 #endif	
-	if(fc_pwr) COP = powerOUT * 100 / fc_pwr; else COP=0; // ЧИСТЫЙ КОП в сотых долях !!!!!!
-	if(power220 != 0) fullCOP = powerOUT * 100 / power220; else fullCOP = 0; // ПОЛНЫЙ КОП в сотых долях !!!!!!
-		#ifndef COP_ALL_CALC        // Ограничение переходных процессов для варианта расчета КОП только при работающем компрессоре, что бы графики нормально масштабировались
-		if(COP>10*100) COP=8*100;       // КОП не более 8
-		if(fullCOP>8*100) fullCOP=7*100; // полный КОП не более 7
-		#endif
-#ifndef COP_ALL_CALC   // если КОП надо считать не всегда 
-	} else { COP=0; fullCOP=0; }  // компрессор не рабоатет
+//	uint16_t fc_pwr = dFC.get_power();  // получить текущую мощность компрессора
+//	if(fc_pwr) COP = powerOUT * 100 / fc_pwr; else COP=0; // Компрессорный COP в сотых долях !!!!!!
+	if(_power220 != 0) fullCOP = powerOUT * 100 / _power220; else fullCOP = 0; // ПОЛНЫЙ COP в сотых долях !!!!!!
+	#ifndef COP_ALL_CALC        // Ограничение переходных процессов для варианта расчета КОП только при работающем компрессоре, что бы графики нормально масштабировались
+//		if(COP>10*100) COP=8*100;       // COP не более 8
+		if(fullCOP>8*100) fullCOP=7*100; // полный COP не более 7
+	#endif
+#ifndef COP_ALL_CALC		// если COP надо считать не всегда
+	} else {				// компрессор не рабоатет
+		fullCOP=0;
+//		COP=0;
+
+	}
 #endif
 }
 
@@ -3857,17 +3916,17 @@ void HeatPump::Sun_OFF(void)
 // Предполагается что Электросчетчик стоит на входе ТН (ТЭН не включены) это наиболее точный метод определения мощности
 // Если электросчетчика нет, то пытаемся получить из частотного преобразователя.
 // если не получается определить мощность то функция возвращает 0
-#define SUM_POWER_PUMP 200   // Мощность потребления насосов (для добавления к мощности компрессора)
-int16_t HeatPump::getPower(void)
-{
-#ifdef USE_ELECTROMETER_SDM  // Пытаемся получить мощность по электросчетчику
-if (dSDM.get_link()) { return  dSDM.get_Power();} // Если счетчик работает (связь не утеряна)
-dSDM.uplinkSDM();	// Попытаемся реанимировать счетчик (связь по модбасу)
-if (dSDM.get_link()) { return  dSDM.get_Power();} // Если счетчик работает (связь не утеряна)
+#ifndef NOLINK_SUM_POWER_PUMP
+#define NOLINK_SUM_POWER_PUMP 200   // Мощность потребления насосов, для добавления к мощности компрессора, если нет связи со электро-счетчиком
 #endif
-// Дошли до сюда - значит не получилось мощность по электросчетчику определить,	работаем с ПЧ
-if (dFC.get_present()) return dFC.get_power()+SUM_POWER_PUMP; 
-return 0; // Мощность не определилась
+int16_t HeatPump::getPower(void) {
+#ifdef USE_ELECTROMETER_SDM  // Пытаемся получить мощность по электросчетчику
+	if(!dSDM.get_link()) dSDM.uplinkSDM();	// Попытаемся реанимировать счетчик (связь по модбасу)
+	if(dSDM.get_link()) return dSDM.get_power();
+#endif
+	// Дошли до сюда - значит не получилось мощность по электросчетчику определить,	работаем с ПЧ
+	if(dFC.get_present()) return dFC.get_power() + NOLINK_SUM_POWER_PUMP;
+	return 0; // Мощность не определилась
 }
 
 void HeatPump::set_HeatBoilerUrgently(boolean onoff)
@@ -3890,6 +3949,7 @@ int32_t updatePID(int32_t errorPid, PID_STRUCT &pid, PID_WORK_STRUCT &pidw)
 	journal.printf("PID(%x): err:%d,pre_err:%d,sum:%d (%d,%d,%d). ", &pid, errorPid, pidw.pre_err, pidw.sum, pid.Kp, pid.Ki, pid.Kd);
 #endif
 #ifdef PID_FORMULA2
+	// Алгоритм 2 - стандартный ардуиновский ПИД, выдает значение (не дельту)
 	pidw.sum += (int32_t)pid.Ki * errorPid;
 	if(pidw.PropOnMeasure) {
 		pidw.sum -= (int32_t)pid.Kp * (pidw.pre_err - errorPid);
@@ -3915,7 +3975,7 @@ int32_t updatePID(int32_t errorPid, PID_STRUCT &pid, PID_WORK_STRUCT &pidw)
 #ifdef DEBUG_PID
 	journal.printf("D=%d,Sum(%d)=%d\n", -pid.Kd * (pidw.pre_err - errorPid), pidw.sum, newVal);
 #endif
-#else  // Алгоритм 1 Классический ПИД
+#else  // Алгоритм 1 - оригинальный ПИД, выдает дельту, коэффициенты не корректируются по времени
 	// Cp, Ci, Cd – коэффициенты дискретного ПИД регулятора;
 	// u(t) = P (t) + I (t) + D (t);
 	// P (t) = Kp * e (t);

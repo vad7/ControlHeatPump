@@ -1140,7 +1140,30 @@ void WR_Change_Load_PWM(uint8_t idx, int16_t delta)
 		} else if(WR_LoadRun[idx]) WR_SwitchTime[idx] = t;
 	}
 	if(n != WR_LoadRun[idx] || GETBIT(WR_Refresh, idx)) {
-		if(n != WR_LoadRun[idx] && (WR_LoadRun[idx] == 0 || n == 0)) WR_SwitchTime[idx] = t;
+		if(n != WR_LoadRun[idx]) {
+#ifdef WR_Boiler_Substitution_INDEX
+			if(n > 0) {
+				if(idx == WR_Boiler_Substitution_INDEX && !digitalReadDirect(PIN_WR_Boiler_Substitution)) {
+					if(WR_LoadRun[WR_Load_pins_Boiler_INDEX] > 0) {
+						PWM_Write(WR_Load_pins[WR_Load_pins_Boiler_INDEX], ((1<<PWM_WRITE_OUT_RESOLUTION)-1));
+						WR_SwitchTime[WR_Load_pins_Boiler_INDEX] = t;
+						_delay(10); // 1/100 Hz
+					}
+					digitalWriteDirect(PIN_WR_Boiler_Substitution, 1);
+					_delay(WR_Boiler_Substitution_swtime);
+				} else if(idx == WR_Load_pins_Boiler_INDEX && digitalReadDirect(PIN_WR_Boiler_Substitution)) {
+					if(WR_LoadRun[WR_Boiler_Substitution_INDEX] > 0) {
+						PWM_Write(WR_Load_pins[WR_Boiler_Substitution_INDEX], ((1<<PWM_WRITE_OUT_RESOLUTION)-1));
+						WR_SwitchTime[WR_Boiler_Substitution_INDEX] = t;
+						_delay(10); // 1/100 Hz
+					}
+					digitalWriteDirect(PIN_WR_Boiler_Substitution, 0);
+					_delay(WR_Boiler_Substitution_swtime);
+				}
+			}
+#endif
+			if((WR_LoadRun[idx] == 0 || n == 0) && WR_TestLoadStatus == 0) WR_SwitchTime[idx] = t;
+		}
 		WR_LoadRun[idx] = n;
 		if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf_time("WR: P%d=%d\n", idx + 1, n);
 #ifdef PWM_ACCURATE_POWER
@@ -1174,6 +1197,13 @@ uint8_t WR_Check_MPPT(void)
 {
 	int err = Send_HTTP_Request(HTTP_MAP_Server, HTTP_MAP_Read_MPPT, 1);
 	if(err) {
+		if(HP.get_testMode() != NORMAL) {
+#ifdef WR_PowerMeter_Modbus
+			return WR_PowerMeter_Power % 10;
+#else
+			return 3;
+#endif
+		}
 		if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: MPPT request Error %d\n", err);
 		return 0;
 	}
@@ -1196,10 +1226,10 @@ void WR_Calc_Power_Array_NewMeter(int32_t power)
 #ifdef WR_CurrentSensor_4_20mA
 		HP.sADC[IWR].Read();
 #ifndef TEST_BOARD
-		if(PWM_AverageCnt++) PWM_AverageSum += HP.sADC[IWR].get_Value() * (int)HP.dSDM.get_Voltage();
+		if(PWM_AverageCnt++) PWM_AverageSum += HP.sADC[IWR].get_Value() * HP.dSDM.get_voltage();
 #else
 		if(PWM_AverageCnt++) {
-			if(HP.dSDM.get_Voltage() != 0) PWM_AverageSum += HP.sADC[IWR].get_Value() * (int)HP.dSDM.get_Voltage();
+			if(HP.dSDM.get_Voltage() != 0) PWM_AverageSum += HP.sADC[IWR].get_Value() * HP.dSDM.get_voltage();
 			else {
 				PWM_AverageSum += 10 + (GETBIT(PWM_CalcFlags, PWM_fCalcRelax) ? 0 : PWM_CalcIdx * 9) + (rand() & 0x3);
 			}
