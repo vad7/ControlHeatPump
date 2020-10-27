@@ -27,7 +27,7 @@
 byte packetBuffer[NTP_PACKET_SIZE+1];       // буфер, в котором будут храниться входящие и исходящие пакеты
 
 // Установка времени системы (сначала читаем из i2c часов)
-// Возвращает код ошибки
+// Возвращает код ошибки. Вызов только из setup()!
 int8_t set_time(void)
 {
 	journal.jprintf(" I2C RTC DS3232: %s\n", DecodeTimeDate(TimeToUnixTime(getTime_RtcI2C()),(char*) packetBuffer));   // Показать что i2c часы работают - показав текущее время
@@ -50,12 +50,14 @@ int8_t set_time(void)
 #ifdef HTTP_TIME_REQUEST
 // Формат HTTP 1.0 GET запроса: "http://server:port/curr_time.csv"
 // Ответ: "UTC time sec;"
-EthernetClient tTCP; // For get time
-char NTP_buffer[20];
+#define NTP_buffer Socket[MAIN_WEB_TASK].outBuf
+#define NTP_buffer_size	64
 
 // 0x80000000 - Ошибка, иначе разница в сек
+// Вызов только из setup() или из MAIN_WEB_TASK !!!
 int32_t set_time_NTP(void)
 {
+	EthernetClient tTCP; // For get time
 	unsigned long secs = 0;
 	int8_t flag = 0;
 	IPAddress ip(0, 0, 0, 0);
@@ -100,7 +102,7 @@ int32_t set_time_NTP(void)
 						break;
 					}
 				}
-				if(flag > 0) { // Ответ получен, формат: "<время UTC>;"
+				if(flag > 0) { // Ответ получен, формат: "<время UTC>;<время счетчика LOCAL>;"
 					if(tTCP.read((uint8_t *)&NTP_buffer, sizeof(http_key_ok1)-1) == sizeof(http_key_ok1)-1) {
 						if(memcmp(&NTP_buffer, &http_key_ok1, sizeof(http_key_ok1)-1) == 0) {
 							if(tTCP.read((uint8_t *)&NTP_buffer, 3 + sizeof(http_key_ok2)-1) == 3 + sizeof(http_key_ok2)-1) { // HTTP/
@@ -108,13 +110,20 @@ int32_t set_time_NTP(void)
 									flag = -6;
 									while(tTCP.available()) {
 										if(tTCP.read() == '\r' && tTCP.read() == '\n' && tTCP.read() == '\r' && tTCP.read() == '\n') { // тело
-											memset(&NTP_buffer, 0, sizeof(NTP_buffer));
-											tTCP.read((uint8_t *)&NTP_buffer, sizeof(NTP_buffer));
+											memset(&NTP_buffer, 0, NTP_buffer_size);
+											tTCP.read((uint8_t *)&NTP_buffer, NTP_buffer_size);
 											char *p = strchr(NTP_buffer, ';');
 											if(p != NULL) {
-												*p = '\0';
-												secs = atoi(NTP_buffer);
-												if(secs) flag = 1;
+#ifdef HTTP_TIME_REQUEST_FLD2
+												secs = strtoul(p + 1, NULL, 10);
+												if(secs != 0 && secs != ULONG_MAX) flag = 1;
+#else
+												secs = strtoul(NTP_buffer, NULL, 10);
+												if(secs != 0 && secs != ULONG_MAX) {
+													secs += time_zone_adjustment(TIME_ZONE);
+													flag = 1;
+												}
+#endif
 											} else flag = -7;
 											break;
 										}
@@ -133,7 +142,7 @@ int32_t set_time_NTP(void)
 	if(flag > 0) {  // Обновление времени если оно получено
 		unsigned long lt = rtcSAM3X8.unixtime();
 		if(lt != secs) {
-			rtcSAM3X8.set_clock(secs, TIME_ZONE);    // обновить внутренние часы
+			rtcSAM3X8.set_clock(secs, 0);    // обновить внутренние часы
 		}
 		// обновились, можно и часы i2c обновить
 		setTime_RtcI2C(rtcSAM3X8.get_hours(), rtcSAM3X8.get_minutes(), rtcSAM3X8.get_seconds());
@@ -148,41 +157,12 @@ int32_t set_time_NTP(void)
 
 #else
 
-// send an NTP request to the time server at the given address
-// true если нет ошибок
-boolean sendNTPpacket(IPAddress &ip)
-{
-	memset(packetBuffer, 0, NTP_PACKET_SIZE);
-	// Initialize values needed to form NTP request
-	// (see URL above for details on the packets)
-	packetBuffer[0] = 0b11100011;   // LI, Version, Mode
-	packetBuffer[1] = 0;            // Stratum, or type of clock
-	packetBuffer[2] = 6;            // Polling Interval
-	packetBuffer[3] = 0xEC;         // Peer Clock Precision
-	// 8 bytes of zero for Root Delay & Root Dispersion
-	packetBuffer[12] = 49;
-	packetBuffer[13] = 0x4E;
-	packetBuffer[14] = 49;
-	packetBuffer[15] = 52;
-	// all NTP fields have been given values, now
-	// you can send a packet requesting a timestamp:
-	if(Udp.beginPacket(ip, NTP_PORT, W5200_SOCK_SYS) == 1) {
-		Udp.write(packetBuffer, NTP_PACKET_SIZE);
-		if(Udp.endPacket() != 1) {
-			journal.jprintf("Send packet NTP error\n");
-			return false;
-		}
-	} else {
-		journal.jprintf("Socket error\n");
-		return false;
-	}
-	return true;
-}
-
 // Функция обновления времени по ntp вызывается из задачи или кнопкой. true - если время обновлено
 // Запрос времени от NTP сервера, возвращает время как long
+// Вызов только из setup() или из MAIN_WEB_TASK !!!
 boolean set_time_NTP(void)
 {
+	EthernetUDP Udp;                                    // Для NTP сервера
 	unsigned long secs;
 	boolean flag = false;
 	IPAddress ip(0, 0, 0, 0);
@@ -212,7 +192,33 @@ boolean set_time_NTP(void)
 	{
 		WDT_Restart(WDT);                                            // Сбросить вачдог
 		journal.jprintf(" Send packet NTP, wait . . .\n");
-		flag = sendNTPpacket(ip);
+
+		memset(packetBuffer, 0, NTP_PACKET_SIZE);
+		// Initialize values needed to form NTP request
+		// (see URL above for details on the packets)
+		packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+		packetBuffer[1] = 0;            // Stratum, or type of clock
+		packetBuffer[2] = 6;            // Polling Interval
+		packetBuffer[3] = 0xEC;         // Peer Clock Precision
+		// 8 bytes of zero for Root Delay & Root Dispersion
+		packetBuffer[12] = 49;
+		packetBuffer[13] = 0x4E;
+		packetBuffer[14] = 49;
+		packetBuffer[15] = 52;
+		// all NTP fields have been given values, now
+		// you can send a packet requesting a timestamp:
+		if(Udp.beginPacket(ip, NTP_PORT, W5200_SOCK_SYS) == 1) {
+			Udp.write(packetBuffer, NTP_PACKET_SIZE);
+			if(Udp.endPacket() != 1) {
+				journal.jprintf("Send packet NTP error\n");
+				flag = false;
+			}
+		} else {
+			journal.jprintf("Socket error\n");
+			flag = false;
+		}
+		flag = true;
+
 		_delay(NTP_REPEAT_TIME);                                             // Ждем, чтобы увидеть, доступен ли ответ:
 		if(flag) {
 			flag = false;
