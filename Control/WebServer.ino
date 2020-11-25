@@ -264,12 +264,20 @@ void readFileSD(char *filename, uint8_t thread)
 	}
 
 	// В начале обрабатываем генерируемые файлы (для выгрузки из контроллера)
-	if(strcmp(filename, "state.txt") == 0) { get_txtState(thread, true); return; }
+	if(strcmp(filename, "state.txt") == 0) {
+		get_txtState(thread, true);
+		return;
+	}
 	if(strncmp(filename, "settings", 8) == 0) {
 		filename += 8;
-		if(strcmp(filename, ".txt") == 0) {	get_txtSettings(thread); return; }
-		else if(strcmp(filename, ".bin") == 0) {
-			if(!get_binSettings(thread)) journal.jprintf("Error download %s%s\n", "settings", filename);
+		if(strcmp(filename, ".txt") == 0) {
+			get_txtSettings(thread);
+			return;
+		} else if(strcmp(filename, ".bin") == 0) {
+			get_binSettings(thread);
+			return;
+		} else if(strcmp(filename, "_eeprom.bin") == 0) {
+			get_binEeprom(thread);
 			return;
 		}
 		filename -= 8;
@@ -610,9 +618,16 @@ void parserGET(uint8_t thread, int8_t )
 			}
 			if(strcmp(str,"DSR")==0) {    // Функция get_listDSR
 				strcat(strReturn, "---;");
-				for(i = RCOMP + 1; i < RNUMBER; i++) if(HP.dRelay[i].get_present()) {
+				for(i = RCOMP + 1; i < RNUMBER; i++) {
 					strcat(strReturn, HP.dRelay[i].get_name()); strcat(strReturn,";");
 				}
+#ifdef HTTP_MAP_RELAY_MAX
+				for(i = 1; i <= HTTP_MAP_RELAY_MAX; i++) {
+					strcat(strReturn, "HTTP-");
+					_itoa(i, strReturn);
+					strcat(strReturn,";");
+				}
+#endif
 				ADD_WEBDELIM(strReturn);
 				continue;
 			}
@@ -1488,11 +1503,12 @@ void parserGET(uint8_t thread, int8_t )
 			if(strcmp(str, "TempF") == 0) // get_tblTempF, Возвращает список датчиков через ";"
 			{
 				for(i = 0; i < TNUMBER; i++) if(HP.sTemp[i].get_present()) { strcat(strReturn, HP.sTemp[i].get_name()); strcat(strReturn, ";"); }
-			} else if(strncmp(str, "Temp", 4) == 0) // get_tblTempN - Возвращает список датчиков через ";", N число в конце - возвращаются датчики имеющие этот бит в SENSORTEMP[]
-			{
+			} else if(strncmp(str, "Temp", 4) == 0) {	// get_tblTempN - Возвращает список датчиков через ";", N число в конце - возвращаются датчики имеющие этот бит в SENSORTEMP[]
+														// При доступности для датчика настройки HP.Prof.SaveON.bTIN - '*' перед именем датчика
 				uint8_t m = atoi(str + 4);
 				for(i = 0; i < TNUMBER; i++)
 					if((HP.sTemp[i].get_cfg_flags() & (1<<m)) && ((HP.sTemp[i].get_cfg_flags()&(1<<0)) || HP.sTemp[i].get_fAddress())) {
+						if(HP.sTemp[i].get_setup_flags() & ((1<<fTEMP_as_TIN_average) | (1<<fTEMP_as_TIN_min))) strcat(strReturn, "*");
 						strcat(strReturn, HP.sTemp[i].get_name()); strcat(strReturn, ";");
 					}
 			} else if(strcmp(str,"Input")==0)     // Функция get_tblInput
@@ -1515,8 +1531,13 @@ void parserGET(uint8_t thread, int8_t )
 						strcat(strReturn, "---;;00:00;00:00|");
 						break;
 					}
-					strReturn += m_snprintf(strReturn += m_strlen(strReturn), 256, "%s;%s;%02d:%d0;%02d:%d0|", HP.dRelay[HP.Prof.DailySwitch[i].Device].get_name(), HP.dRelay[HP.Prof.DailySwitch[i].Device].get_note(),
+					if(HP.Prof.DailySwitch[i].Device >= RNUMBER) {
+						strReturn += m_snprintf(strReturn += m_strlen(strReturn), 256, "HTTP-%d;Дистанционное реле %d;%02d:%d0;%02d:%d0|", HP.Prof.DailySwitch[i].Device - RNUMBER+1, HP.Prof.DailySwitch[i].Device - RNUMBER+1,
+													HP.Prof.DailySwitch[i].TimeOn / 10, HP.Prof.DailySwitch[i].TimeOn % 10, HP.Prof.DailySwitch[i].TimeOff / 10, HP.Prof.DailySwitch[i].TimeOff % 10);
+					} else {
+						strReturn += m_snprintf(strReturn += m_strlen(strReturn), 256, "%s;%s;%02d:%d0;%02d:%d0|", HP.dRelay[HP.Prof.DailySwitch[i].Device].get_name(), HP.dRelay[HP.Prof.DailySwitch[i].Device].get_note(),
 							HP.Prof.DailySwitch[i].TimeOn / 10, HP.Prof.DailySwitch[i].TimeOn % 10, HP.Prof.DailySwitch[i].TimeOff / 10, HP.Prof.DailySwitch[i].TimeOff % 10);
+					}
 				}
 #ifdef CORRECT_POWER220
 			} else if(strcmp(str,"PwrC")==0) {    // Функция get_tblPwrC
@@ -2262,6 +2283,10 @@ x_get_aTemp:
 								if (HP.sTemp[p].get_present()==true)  strcat(strReturn,cOne); else  strcat(strReturn,cZero);
 								ADD_WEBDELIM(strReturn) ;    continue;
 							}
+							if(strncmp(str, "inT", 3) == 0) {      // Функция get_inTemp - флаги разрешения использования датчиков для расчета TIN
+								strcat(strReturn, GETBIT(HP.Prof.SaveON.bTIN, p) ? cOne : cZero);
+								ADD_WEBDELIM(strReturn); continue;
+							}
 							if(strncmp(str, "nTemp", 5) == 0)           // Функция get_nTemp, если радиодатчик: добавляется уровень сигнала, если get_nTemp2 - +напряжение батарейки
 							{
 								strcat(strReturn, HP.sTemp[p].get_note());
@@ -2305,6 +2330,11 @@ x_get_aTemp:
 							{ 	if (HP.sTemp[p].set_errTemp(rd(pm, 100))==OK)    // Установить значение в сотых градуса
 									{ _dtoa(strReturn, HP.sTemp[p].get_errTemp(), 2); ADD_WEBDELIM(strReturn); continue; }
 								else { strcat(strReturn,"E05" WEBDELIM);  continue;}      // выход за диапазон ПРЕДУПРЕЖДЕНИЕ значение не установлено
+							}
+							if(strncmp(str, "inT", 3) == 0) {      // Функция set_inTemp - флаги разрешения использования датчиков для расчета TIN
+								HP.Prof.SaveON.bTIN = (HP.Prof.SaveON.bTIN & ~(1<<p)) | ((pm != 0)<<p);
+								strcat(strReturn, pm != 0 ? cOne : cZero);
+								ADD_WEBDELIM(strReturn); continue;
 							}
 
 							if(strncmp(str, "fTemp", 5) == 0) {   // set_fTempX(N=V): X - номер флага fTEMP_* (1..), N - имя датчика (flag)
@@ -2868,6 +2898,7 @@ TYPE_RET_POST parserPOST(uint8_t thread, uint16_t size)
 	ptr += sizeof(emptyStr) - 1;
 	nameFile = strstr(Socket[thread].inPtr, Title);
 	pStart = (byte*) strstr(Socket[thread].inPtr, http_Length);
+	if(pStart) pStart += sizeof(http_Length) - 1;
 	if(nameFile) {
 		char *p = strchr(nameFile += sizeof(Title) - 1, '\r');
 		if(p) *p = '\0'; else nameFile = NULL;
@@ -2881,16 +2912,12 @@ TYPE_RET_POST parserPOST(uint8_t thread, uint16_t size)
 		journal.jprintf("Upload: %s name length > %d bytes!\n", nameFile, MAX_FILE_LEN - 1);
 		return pLOAD_ERR;
 	}
-	if(pStart) {
-		char *p = strchr((char*)(pStart += sizeof(http_Length) - 1), '\r');
-		if(p) *p = '\0'; else pStart = NULL;
-	}
 	if(!pStart) { // Размер файла не найден, запрос не верен, выходим
 xLenErr:
 		journal.jprintf("Upload: %s - length not found!\n", nameFile);
 		return pLOAD_ERR;
 	}
-	lenFile = atoi((char*) pStart);	// получить длину
+	lenFile = strtol((char*) pStart, NULL, 10);	// получить длину
 	// все нашлось, можно обрабатывать
 	buf_len = size - (ptr - (byte *) Socket[thread].inBuf);                  // длина (остаток) данных (файла) в буфере
 	// В зависимости от имени файла (Title)
@@ -2899,10 +2926,16 @@ xLenErr:
 		WEB_STORE_DEBUG_INFO(52);
 		int32_t len;
 		// Определение начала данных (поиск HEADER_BIN)
-		pStart=(byte*)strstr((char*) ptr, HEADER_BIN);    // Поиск заголовка
+xContinueSearchHeader:
+		pStart = (byte*)strstr((char*) ptr, HEADER_BIN);    // Поиск заголовка
 		if(pStart == NULL) {              // Заголовок не найден
+			if((len = Socket[thread].client.available())) {
+				if(len > W5200_MAX_LEN) len = W5200_MAX_LEN;
+				Socket[thread].client.read(ptr = (uint8_t*)Socket[thread].inBuf, len);            // прочитать буфер
+				goto xContinueSearchHeader;
+			}
 			journal.jprintf("Upload: Wrong save format: %s!\n", nameFile);
-			if(HP.get_NetworkFlags() & (1<<fWebFullLog)) journal.jprintf("%s\n\n", ptr);
+			if(HP.get_NetworkFlags() & (1<<fWebFullLog)) journal.jprintf("[Avail:%d] %s\n\n", Socket[thread].client.available(), ptr);
 			return pSETTINGS_ERR;
 		}
 		len=pStart+sizeof(HEADER_BIN)-1 - (byte*) Socket[thread].inBuf;         // размер текстового заголовка в буфере до окончания HEADER_BIN, дальше идут бинарные данные

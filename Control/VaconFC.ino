@@ -31,6 +31,7 @@ int8_t devVaconFC::initFC()
 	current = 0; // Текуший ток частотника
 	startCompressor = 0; // время старта компрессора
 	state = ERR_LINK_FC; // Состояние - нет связи с частотником по Modbus
+	Adjust_EEV_delta = 0;
 
 	testMode = NORMAL; // Значение режима тестирования
 	name = (char*) FC_VACON_NAME; // Имя
@@ -54,7 +55,13 @@ int8_t devVaconFC::initFC()
 	_data.stepFreqBoiler = DEF_FC_STEP_FREQ_BOILER;    // Шаг уменьшения инвертора при достижении максимальной температуры, мощности и тока ГВС в 0.01
 	_data.dtTemp = DEF_FC_DT_TEMP;                     // Привышение температуры от уставок (подача) при которой срабатыват защита (уменьшается частота) в сотых градуса
 	_data.dtTempBoiler = DEF_FC_DT_TEMP_BOILER;        // Привышение температуры от уставок (подача) при которой срабатыват защита ГВС в сотых градуса
-	_data.PidMaxStep = 1000;
+	_data.PidMaxStep = 500;
+	_data.ReturnOilMinFreq = FC_RETOIL_FREQ;
+	_data.ReturnOilFreq = 3000; // %
+	_data.ReturnOilPeriod = 1800000 / FC_TIME_READ;
+	_data.ReturnOilPerDivHz = 48000 / FC_TIME_READ;
+	_data.ReturnOilTime = FC_RETOIL_TIME;
+
 	flags = 0x00;                                	   // флаги  0 - наличие FC
 	_data.setup_flags = 0;
 #ifndef FC_ANALOG_CONTROL
@@ -206,37 +213,40 @@ int8_t devVaconFC::get_readState()
 				}
 			}
 		}
-#ifdef FC_RETOIL_FREQ
-		if(GETBIT(flags, fOnOff) && GETBIT(_data.setup_flags, fFC_RetOil) && err == OK) {
-			if(!GETBIT(flags, fFC_RetOilSt)) {
-				if(FC_curr_freq < FC_RETOIL_FREQ && (FC_curr_freq < _data.maxFreqGen || !GETBIT(HP.Option.flags, fBackupPower))) {
-					if(++ReturnOilTimer >= _data.ReturnOilPeriod - (FC_RETOIL_FREQ - FC_curr_freq) * _data.ReturnOilPerDivHz / 100) {
-						flags |= 1 << fFC_RetOilSt;
+		if(GETBIT(flags, fOnOff) && err == OK) {
+			if(Adjust_EEV_delta) {
 #ifdef EEV_DEF
-						if(_data.ReturnOilEEV != 0) {
-							HP.dEEV.set_EEV(HP.dEEV.get_EEV() + _data.ReturnOilEEV);
-							_delay(1);
-						}
+				int16_t n = HP.dEEV.get_EEV() + Adjust_EEV_delta;
+				if(n < HP.dEEV.get_minEEV()) n = HP.dEEV.get_minEEV(); else if(n > HP.dEEV.get_maxEEV()) n = HP.dEEV.get_maxEEV();
+				if(GETBIT(HP.dEEV.get_flags(), fEEV_DirectAlgorithm)) {
+					HP.dEEV.pidw.max = 1 + (abs(n - HP.dEEV.get_EEV()) > 5 ? 1 : 0); // пропустить итераций
+				}
+				HP.dEEV.set_EEV(n);
 #endif
-						err = write_0x06_16((uint16_t) FC_SET_SPEED, _data.startFreq);
+				Adjust_EEV_delta = 0;
+			}
+#ifdef FC_RETOIL_FREQ
+			if(GETBIT(_data.setup_flags, fFC_RetOil)) {
+				if(!GETBIT(flags, fFC_RetOilSt)) {
+					if(FC_curr_freq < _data.ReturnOilMinFreq && (FC_curr_freq < _data.maxFreqGen || !GETBIT(HP.Option.flags, fBackupPower))) {
+						if(++ReturnOilTimer >= _data.ReturnOilPeriod - (_data.ReturnOilMinFreq - FC_curr_freq) * _data.ReturnOilPerDivHz / 100) {
+							flags |= 1 << fFC_RetOilSt;
+							err = write_0x06_16((uint16_t) FC_SET_SPEED, _data.ReturnOilFreq);
+							Adjust_EEV(_data.ReturnOilFreq - FC_target);
+							ReturnOilTimer = 0;
+						}
+					} else ReturnOilTimer = 0;
+				} else {
+					if(++ReturnOilTimer >= _data.ReturnOilTime) {
+						Adjust_EEV(_data.ReturnOilFreq - FC_target);
+						flags &= ~(1 << fFC_RetOilSt);
+						err = write_0x06_16((uint16_t) FC_SET_SPEED, FC_target);
 						ReturnOilTimer = 0;
 					}
-				} else ReturnOilTimer = 0;
-			} else {
-				if(++ReturnOilTimer >= FC_RETOIL_TIME) {
-					err = write_0x06_16((uint16_t) FC_SET_SPEED, FC_target);
-#ifdef EEV_DEF
-					if(_data.ReturnOilEEV != 0) {
-						HP.dEEV.set_EEV(HP.dEEV.get_EEV() - _data.ReturnOilEEV);
-						_delay(1);
-					}
-#endif
-					flags &= ~(1 << fFC_RetOilSt);
-					ReturnOilTimer = 0;
 				}
 			}
-		}
 #endif
+		}
 #else // Аналоговое управление
 		err = OK;
 		power = 0;
@@ -244,6 +254,14 @@ int8_t devVaconFC::get_readState()
 #endif
 	}
 	return err;
+}
+
+void devVaconFC::Adjust_EEV(int16_t freq_delta)
+{
+	if(GETBIT(flags, fOnOff)) {
+		int16_t k = GETBIT(flags, fFC_RetOilSt) ? _data.ReturnOil_AdjustEEV_k : _data.AdjustEEV_k;
+		Adjust_EEV_delta = (freq_delta * k + 5000) / 10000L; // +Округление
+	}
 }
 
 // Установить целевую скорость в %
@@ -281,14 +299,7 @@ int8_t devVaconFC::set_target(int16_t x, boolean show, int16_t _min, int16_t _ma
 		err = write_0x06_16((uint16_t)FC_SET_SPEED, x);
 	}
 	if(err == OK) {
-		if(GETBIT(flags, fOnOff) && _data.AdjustEEV_k) {
-			int16_t n = HP.dEEV.get_EEV() + (x - FC_target) * _data.AdjustEEV_k / 10000L;
-			if(n < HP.dEEV.get_minEEV()) n = HP.dEEV.get_minEEV(); else if(n > HP.dEEV.get_maxEEV()) n = HP.dEEV.get_maxEEV();
-			if(GETBIT(HP.dEEV.get_flags(), fEEV_DirectAlgorithm)) {
-				HP.dEEV.pidw.max = 1 + (abs(n - HP.dEEV.get_EEV()) > 5 ? 1 : 0); // пропустить итераций
-			}
-			HP.dEEV.set_EEV(n);
-		}
+		Adjust_EEV(x - FC_target);
 		FC_target = x;
 		if(show) journal.jprintf(" Set %s[%s]: %.2d%%\n", name, (char *)codeRet[HP.get_ret()], FC_target);
 	} else {  // генерация ошибки
@@ -296,11 +307,7 @@ int8_t devVaconFC::set_target(int16_t x, boolean show, int16_t _min, int16_t _ma
 		set_Error(err, name);
 	}
 #else // Аналоговое управление
-	if(GETBIT(flags, fOnOff) && _data.AdjustEEV_k) {
-		int16_t n = HP.dEEV.get_EEV() + (x - FC_target) * _data.AdjustEEV_k / 100;
-		if(n < HP.dEEV.get_minEEV()) n = HP.dEEV.get_minEEV(); else if(n > HP.dEEV.get_maxEEV()) n = HP.dEEV.get_maxEEV();
-		HP.dEEV.set_EEV(n);
-	}
+	Adjust_EEV(x - FC_target);
 	FC_target = x;
 #ifdef FC_ANALOG_OFF_SET_0
 	if(!GETBIT(flags, fOnOff)) return err;
@@ -456,6 +463,7 @@ xStarted:
     journal.jprintf(" %s ON\n", name);
 #endif //DEMO
 #endif //FC_ANALOG_CONTROL
+    Adjust_EEV_delta = 0;
     return err;
 }
 
@@ -535,7 +543,8 @@ int8_t devVaconFC::stop_FC()
     journal.jprintf(" %s OFF\n", name);
  #endif // DEMO
 #endif // FC_ANALOG_CONTROL
-    return err;
+    Adjust_EEV_delta = 0;
+	return err;
 }
 
 // Получить параметр инвертора в виде строки, результат ДОБАВЛЯЕТСЯ в ret
@@ -567,7 +576,9 @@ void devVaconFC::get_paramFC(char *var,char *ret)
     if(strcmp(var,fc_fFC_RetOil)==0)   			{  strcat(ret,(char*)(GETBIT(_data.setup_flags,fFC_RetOil) ? cOne : cZero)); } else
     if(strcmp(var,fc_ReturnOilPeriod)==0)       {  _itoa(_data.ReturnOilPeriod * (FC_TIME_READ/1000), ret); } else
     if(strcmp(var,fc_ReturnOilPerDivHz)==0)     {  _itoa(_data.ReturnOilPerDivHz * (FC_TIME_READ/1000), ret); } else
-    if(strcmp(var,fc_ReturnOilEEV)==0)          {  _itoa(_data.ReturnOilEEV, ret); } else
+    if(strcmp(var,fc_ReturnOilMinFreq)==0)      {  _dtoa(ret, _data.ReturnOilMinFreq, 2); } else
+    if(strcmp(var,fc_ReturnOilFreq)==0)         {  _dtoa(ret, _data.ReturnOilFreq, 2); } else
+    if(strcmp(var,fc_ReturnOilTime)==0)         {  _itoa(_data.ReturnOilTime * (FC_TIME_READ/1000), ret); } else
     if(strcmp(var,fc_ANALOG)==0)                { // Флаг аналогового управления
 #ifdef FC_ANALOG_CONTROL
 		                                         strcat(ret,(char*)cOne);
@@ -604,16 +615,10 @@ void devVaconFC::get_paramFC(char *var,char *ret)
     if(strcmp(var,fc_DT_TEMP)==0)               {  _dtoa(ret, _data.dtTemp,2); } else // градусы
     if(strcmp(var,fc_DT_TEMP_BOILER)==0)        {  _dtoa(ret, _data.dtTempBoiler,2); } else // градусы
     if(strcmp(var,fc_MB_ERR)==0)        		{  _itoa(numErr, ret); } else
-    if(strcmp(var,fc_FC_RETOIL_FREQ)==0)   		{
-#ifdef FC_RETOIL_FREQ
-    	_dtoa(ret, FC_RETOIL_FREQ,2);
-#else
-    	strcat(ret, "-");
-#endif
-    } else
    	if(strcmp(var, fc_FC_TIME_READ)==0)   		{  _itoa(FC_TIME_READ, ret); } else
    	if(strcmp(var, fc_PidMaxStep)==0)   		{  _dtoa(ret, _data.PidMaxStep, 2); } else
-    if(strcmp(var, fc_AdjustEEV_k)==0)			{  _dtoa(ret, (int32_t)_data.AdjustEEV_k * 100 / HP.dEEV.get_maxEEV(), 2); } else
+    if(strcmp(var, fc_AdjustEEV_k)==0)			{  _dtoa(ret, _data.AdjustEEV_k, 2); } else
+     if(strcmp(var, fc_ReturnOil_AdjustEEV_k)==0){ _dtoa(ret, _data.ReturnOil_AdjustEEV_k, 2); } else
 
     strcat(ret,(char*)cInvalid);
 }
@@ -638,9 +643,8 @@ boolean devVaconFC::set_paramFC(char *var, float f)
     if(strcmp(var,fc_UPTIME)==0)                { if((x>=1)&&(x<650)){_data.Uptime=x;return true; } else return false; } else   // хранение в сек
     if(strcmp(var,fc_ReturnOilPeriod)==0)       { _data.ReturnOilPeriod = (int16_t) x / (FC_TIME_READ/1000); return true; } else
     if(strcmp(var,fc_ReturnOilPerDivHz)==0)     { _data.ReturnOilPerDivHz = (int16_t) x / (FC_TIME_READ/1000); return true; } else
-    if(strcmp(var,fc_ReturnOilEEV)==0)          { _data.ReturnOilEEV = x; return true; } else
+    if(strcmp(var,fc_ReturnOilTime)==0)         { _data.ReturnOilTime = (int16_t) x / (FC_TIME_READ/1000); return true; } else
     if(strcmp(var,fc_PID_STOP)==0)              { if((x>=0)&&(x<=100)){_data.PidStop=x;return true; } else return false;  } else
-	if(strcmp(var,fc_AdjustEEV_k)==0)           { _data.AdjustEEV_k = f * HP.dEEV.get_maxEEV(); return true; } else
    
 	x = rd(f, 100);
     	if(strcmp(var,fc_DT_COMP_TEMP)==0)          { if(x>=0 && x<2500){_data.dtCompTemp=x;return true; } else return false; } else // градусы
@@ -661,6 +665,10 @@ boolean devVaconFC::set_paramFC(char *var, float f)
 		if(strcmp(var,fc_PID_FREQ_STEP)==0)         { if(x>=0 && x<=_data.PidMaxStep){ _data.PidFreqStep=x; return true; } } else // %
 		if(strcmp(var,fc_STEP_FREQ)==0)             { if(x>=0 && x<10000){_data.stepFreq=x;return true; } } else // %
 		if(strcmp(var,fc_PidMaxStep)==0)            { if(x>=0 && x<10000){_data.PidMaxStep=x; return true; } } else // %
+		if(strcmp(var,fc_ReturnOilMinFreq)==0)      { _data.ReturnOilMinFreq = x; return true; } else
+		if(strcmp(var,fc_ReturnOilFreq)==0)         { _data.ReturnOilFreq = x; return true; } else
+		if(strcmp(var,fc_AdjustEEV_k)==0)           { _data.AdjustEEV_k = x; return true; } else
+		if(strcmp(var,fc_ReturnOil_AdjustEEV_k)==0) { _data.ReturnOil_AdjustEEV_k = x; return true; } else
 		if(strcmp(var,fc_STEP_FREQ_BOILER)==0)      { if(x>=0 && x<10000){_data.stepFreqBoiler=x;return true; } } // %
  
     return false;

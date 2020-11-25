@@ -919,8 +919,15 @@ int32_t Profile::load(int8_t num)
   #endif
 
 #ifdef WATTROUTER
-  WR_Refresh = WR_Loads = SaveON.WR_Loads;
+  WR_Loads = SaveON.WR_Loads;
+  if(GETBIT(WR.Flags, WR_fActive)) WR_Refresh = WR_Loads;
 #endif
+
+  if(SaveON.bTIN == 0) { // Первоначальное заполнение
+	  for(uint8_t i = 0; i < TNUMBER; i++) {
+		  if(HP.sTemp[i].get_setup_flags() & ((1<<fTEMP_as_TIN_average) | (1<<fTEMP_as_TIN_min))) SaveON.bTIN |= (1<<i);
+	  }
+  }
 
   return adr;
  }
@@ -995,7 +1002,7 @@ boolean Profile::set_paramProfile(char *var, char *c)
 		var += sizeof(prof_DailySwitch)-1;
 		uint32_t i = *(var + 1) - '0';
 		if(i >= DAILY_SWITCH_MAX) return false;
-		if(*var == prof_DailySwitchDevice) {
+		if(*var == prof_DailySwitchDevice) { // set_DSDn
 			DailySwitch[i].Device = x;
 		} else {
 			uint32_t h = x / 10;
@@ -1003,9 +1010,9 @@ boolean Profile::set_paramProfile(char *var, char *c)
 			uint32_t m = x % 10;
 			if(m > 5) m = 5;
 			x = h * 10 + m;
-			if(*var == prof_DailySwitchOn) {
+			if(*var == prof_DailySwitchOn) { // set_DSSn
 				DailySwitch[i].TimeOn = x;
-			} else if(*var == prof_DailySwitchOff) {
+			} else if(*var == prof_DailySwitchOff) { // set_DSEn
 				DailySwitch[i].TimeOff = x;
 			}
 		}

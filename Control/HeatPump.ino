@@ -1110,14 +1110,18 @@ boolean HeatPump::set_optionHP(char *var, float x)
 	if(strcmp(var,option_DELAY_BOILER_SW)==0)  {if ((n>=0)&&(n<=1200)) {Option.delayBoilerSW=n; return true;} else return false;}else     // Пауза (сек) после переключение ГВС - выравниваем температуру в контуре отопления/ГВС что бы сразу защиты не сработали
 	if(strcmp(var,option_DELAY_BOILER_OFF)==0) {if ((n>=0)&&(n<=1200)) {Option.delayBoilerOff=n; return true;} else return false;}        // Время (сек) на сколько блокируются защиты при переходе с ГВС на отопление и охлаждение слишком горяче после ГВС
 	else if(strcmp(var,option_fBackupPower)==0)     {if (n==0) {SETBIT0(Option.flags,fBackupPower); return true;} else if (n==1) {SETBIT1(Option.flags,fBackupPower); return true;} else return false;} // флаг Использование резервного питания от генератора (ограничение мощности)
-	else if(strcmp(var, option_fBackupPowerAuto) == 0) {
+	else if(strcmp(var, option_f2BackupPowerAuto) == 0) {
 	#ifdef SGENERATOR
-		if(n == 0) {
-			SETBIT0(Option.flags2, f2BackupPowerAuto);
-			return true;
-		} else if(n == 1) {
-			SETBIT1(Option.flags2, f2BackupPowerAuto);
-			return true;
+		if(n == 0) { SETBIT0(Option.flags2, f2BackupPowerAuto);	return true;
+		} else if(n == 1) {	SETBIT1(Option.flags2, f2BackupPowerAuto); return true;
+		} else return false;
+	#else
+		return true;
+	#endif
+	} else if(strcmp(var, option_f2NextionGenFlashing) == 0) {
+	#ifdef NEXTION_GENERATOR_FLASHING
+		if(n == 0) { SETBIT0(Option.flags2, f2NextionGenFlashing);	return true;
+		} else if(n == 1) {	SETBIT1(Option.flags2, f2NextionGenFlashing); return true;
 		} else return false;
 	#else
 		return true;
@@ -1238,9 +1242,16 @@ char* HeatPump::get_optionHP(char *var, char *ret)
 	#endif
 		   ) return strcat(ret,(char*)cOne); else return strcat(ret,(char*)cZero);
 	} else
-	if(strcmp(var, option_fBackupPowerAuto) == 0) {
+	if(strcmp(var, option_f2BackupPowerAuto) == 0) {
 	#ifdef SGENERATOR
 	   if(GETBIT(Option.flags2, f2BackupPowerAuto)) return strcat(ret, (char*) cOne); else return strcat(ret, (char*) cZero);
+	#else
+	   return strcat(ret, (char*) cZero);
+	#endif
+	} else
+	if(strcmp(var, option_f2NextionGenFlashing) == 0) {
+	#ifdef NEXTION_GENERATOR_FLASHING
+	   if(GETBIT(Option.flags2, f2NextionGenFlashing)) return strcat(ret, (char*) cOne); else return strcat(ret, (char*) cZero);
 	#else
 	   return strcat(ret, (char*) cZero);
 	#endif
@@ -1408,11 +1419,12 @@ void HeatPump::get_Chart(int index, char *str)
 #endif
 #ifdef TCONOUT
 	case STATS_OBJ_Overcool:
-		if(Chart_PressTemp_PCON && Chart_Temp_TCONOUT) Charts[Chart_PressTemp_PCON].get_PointsStrSubDiv100(str, &Charts[Chart_Temp_TCONOUT]);
+		if(Chart_PressTemp_PCON && Chart_Temp_TCONOUT) Charts[Chart_PressTemp_PCON].get_PointsStrSubDiv100(str,&Charts[Chart_Temp_TCONOUT]);
 		break;
 #endif
 	case STATS_OBJ_TCOMP_TCON:
-		if(Chart_Temp_TCOMP && Chart_PressTemp_PCON) Charts[Chart_Temp_TCOMP].get_PointsStrSubDiv100(str, &Charts[Chart_PressTemp_PCON]);
+		if(Chart_Temp_TCOMP && Chart_PressTemp_PCON) Charts[Chart_Temp_TCOMP].get_PointsStrSubDiv100(str, &Charts[Chart_PressTemp_PCON]); else // если датчика PCON нет
+		if(Chart_Temp_TCOMP && Chart_Temp_TCONOUT)   Charts[Chart_Temp_TCOMP].get_PointsStrSubDiv100(str, &Charts[Chart_Temp_TCONOUT]);
 		break;
 	case STATS_OBJ_Delta_GEO:
 		if(Chart_Temp_TEVAING && Chart_Temp_TEVAOUTG) Charts[Chart_Temp_TEVAING].get_PointsStrSubDiv100(str, &Charts[Chart_Temp_TEVAOUTG]);
@@ -1739,7 +1751,10 @@ if(b && (get_modWork() & pBOILER)){
 
 	if(!b && GETBIT(dRelay[PUMP_IN].flags, fR_StatusMain)) {
 		journal.jprintf(" Delay: stop IN pump.\n");
-		_delay(DELAY_BEFORE_STOP_IN_PUMP * 1000); // задержка перед выключениме гео насоса после выключения компрессора (облегчение останова)
+		for(uint16_t i = 0; i < DELAY_BEFORE_STOP_IN_PUMP; i++) {
+			_delay(1000); // задержка перед выключение гео насоса после выключения компрессора (облегчение останова)
+			if(is_next_command_stop()) break;
+		}
 	}
 	
 	dRelay[PUMP_IN].set_Relay(b);             // Реле включения насоса входного контура  (геоконтур)
@@ -1750,7 +1765,10 @@ if(b && (get_modWork() & pBOILER)){
 #endif
 	)){ // Насосы выключены и будут выключены, нужна пауза идет останов компрессора (новое значение выкл  старое значение вкл)
 		journal.jprintf(" Delay: stop OUT pump.\n");
-		_delay(Option.delayOffPump * 1000); // задержка перед выключениме насосов после выключения компрессора (облегчение останова)
+		for(uint16_t i = 0; i < Option.delayOffPump; i++) {
+			_delay(1000); // задержка перед выключение насосов после выключения компрессора (облегчение останова)
+			if(is_next_command_stop()) break;
+		}
 	} else {
 		_delay(d);                                // Задержка на d мсек
 	}
@@ -3140,7 +3158,6 @@ boolean HeatPump::check_compressor_pause()
 // Попытка включить компрессор  с учетом всех защит КОНФИГУРАЦИЯ уже установлена
 // Вход режим работы ТН
 // Возможно компрессор уже включен и происходит только смена режима
-const char *EEV_go={" EEV go "};  // экономим место
 void HeatPump::compressorON()
 {
 	if(get_State() == pOFF_HP || get_State() == pSTOPING_HP || error) return;  // ТН выключен или выключается выходим ничего не делаем!!!
@@ -3175,48 +3192,62 @@ xNextStop:
 		return;
 	}
 
+	// 1. Обеспечение минимальной паузы компрессора
 #ifdef EEV_DEF
 	if(lastEEV != -1) {         // Не первое включение компрессора после старта ТН
-		// 1. Обеспечение минимальной паузы компрессора
 		if(compressor_in_pause) return;
 #ifdef DEBUG_MODWORK
 		journal.jprintf_time("compressorON > modWork:%X[%s], now %s\n",get_modWork(),codeRet[Status.ret], is_compressor_on() ? "ON" : "OFF");
 #endif
 	}//get_fEEVStartPosByTemp()
-	// 2. Разбираемся с ЭРВ
-	journal.jprintf(EEV_go);
+
+	// 2. Задержка перед включением компрессора
+	#ifdef DEFROST
+	if(!(get_modWork() & pDEFROST))  // При разморозке есть лишние проверки
+	{
+	#endif
+#ifdef DEBUG_MODWORK
+	journal.jprintf_time("Pause %d s before start compressor\n", Option.delayOnPump);
+#endif
+	uint16_t d = Option.delayOnPump;
+#ifdef FLOW_CONTROL
+	//for(uint8_t i = 0; i < FNUMBER; i++) sFrequency[i].reset();  // Сброс счетчиков протока
+	if(Option.delayOnPump < BASE_TIME_READ + TIME_READ_SENSOR/1000 + 1) d = BASE_TIME_READ + TIME_READ_SENSOR/1000 + 1;
+#endif
+	for(; d > 0; d--) { // задержка перед включением компрессора
+		_delay(1000);
+		if(error || is_next_command_stop()) return; // прерваться по ошибке или по команде
+	}
+	#ifdef DEFROST
+	}  // if(!(mod & pDEFROST))
+	#endif
+
+	// 3. Установка ЭРВ
+	journal.jprintf(" EEV go ");
 	if(dEEV.get_LightStart()) { // Выйти на пусковую позицию
 		dEEV.set_EEV(dEEV.get_preStartPos());
-#ifdef EEV_PREFER_PERCENT
-		journal.jprintf("preStartPos: %.2d\n", dEEV.calc_percent(dEEV.get_preStartPos()));
-#else
-		journal.jprintf("preStartPos: %d\n", dEEV.get_preStartPos());
-#endif
+		journal.jprintf("PreStartPos:");
 	} else if(dEEV.get_StartFlagPos()) { // Всегда начинать работу ЭРВ со стартовой позиции
-		dEEV.set_EEV(dEEV.get_StartPos());
-#ifdef EEV_PREFER_PERCENT
-		journal.jprintf("StartPos: %.2d\n", dEEV.calc_percent(dEEV.get_EEV()));
-#else
-		journal.jprintf("StartPos: %d\n", dEEV.get_EEV());
-#endif
-
+		dEEV.set_EEV((Status.modWork & pBOILER) && GETBIT(dEEV.get_flags(), fEEV_BoilerStartPos) ? dEEV.get_BoilerStartPos() : dEEV.get_StartPos());
+		journal.jprintf("StartPos:");
 	} else if(lastEEV != -1) { // установка последнего значения ЭРВ
 		dEEV.set_EEV(lastEEV);
-#ifdef EEV_PREFER_PERCENT
-		journal.jprintf("lastEEV: %.2d\n", dEEV.calc_percent(lastEEV));
-#else
-		journal.jprintf("lastEEV: %d\n", lastEEV);
-#endif
+		journal.jprintf("LastPos:");
 	}
+	for(uint8_t i = 1; i && dEEV.stepperEEV.isBuzy(); i++) _delay(100); // wait EEV stop
+#ifdef EEV_PREFER_PERCENT
+	journal.jprintf(" %.2d\n", dEEV.calc_percent(dEEV.get_EEV()));
+#else
+	journal.jprintf(" %d\n", dEEV.get_EEV());
+#endif
+
+	dEEV.CorrectOverheatInit();
 	if(lastEEV != -1 && dEEV.get_EevClose()) {        // Если закрывали то пауза для выравнивания давлений
 		_delay(dEEV.get_delayOn());  // Задержка на delayOn сек  для выравнивания давлений
 	}
-	dEEV.CorrectOverheatInit();
-	for(uint8_t i = 1; i && dEEV.stepperEEV.isBuzy(); i++) _delay(100); // wait EEV stop
 #endif
-	
 
-	// 3. Управление компрессором
+	// 4. Управление компрессором
 	if (get_errcode()==OK)                                 // Компрессор включить если нет ошибок
 	{
 		// Дополнительные защиты перед пуском компрессора
@@ -3225,10 +3256,10 @@ xNextStop:
 			startPump=false;                               // Поставить признак останова задачи насос
 			if(get_workPump()) journal.jprintf(" WARNING! %s: Pumps in pause, OFF . . .\n",(char*)__FUNCTION__);
 		}
-	#ifdef DEFROST
-	  if(!(get_modWork() & pDEFROST))  // При разморозке есть лишние проверки
-	  {
-	#endif		
+		#ifdef DEFROST
+		if(!(get_modWork() & pDEFROST))  // При разморозке есть лишние проверки
+		{
+		#endif
 		// Проверка включения насосов с проверкой и предупреждением (этого не должно быть)
 		if(!dRelay[PUMP_IN].get_Relay()) {
 			journal.jprintf(" WARNING! %s is off before start compressor!\n", dRelay[PUMP_IN].get_name());
@@ -3246,19 +3277,6 @@ xNextStop:
 			return;
 		}
 #endif
-
-#ifdef DEBUG_MODWORK
-		journal.jprintf_time("Pause %d s before start compressor\n", Option.delayOnPump);
-#endif
-		uint16_t d = Option.delayOnPump;
-#ifdef FLOW_CONTROL
-		//for(uint8_t i = 0; i < FNUMBER; i++) sFrequency[i].reset();  // Сброс счетчиков протока
-		if(Option.delayOnPump < BASE_TIME_READ + TIME_READ_SENSOR/1000 + 1) d = BASE_TIME_READ + TIME_READ_SENSOR/1000 + 1;
-#endif
-		for(; d > 0; d--) { // задержка перед включением компрессора
-			_delay(1000);
-			if(error || is_next_command_stop()) return; // прерваться по ошибке, еще бы проверить команду на останов...
-		}
 
 #ifdef FLOW_CONTROL      // если надо проверяем потоки (защита от отказа насосов) ERR_MIN_FLOW
 		for(uint8_t i = 0; i < FNUMBER; i++) {   // Проверка потока по каждому датчику
@@ -3282,9 +3300,10 @@ xNextStop:
 			if (sInput[SEVA].get_Input()==SEVA_OFF) {set_Error(ERR_SEVA_FLOW,(char*)"SEVA"); return;}                              // Выход по ошибке отсутствия протока
 #endif
 
-#ifdef DEFROST
-   }  // if(!(mod & pDEFROST))
-#endif	
+		#ifdef DEFROST
+		}  // if(!(mod & pDEFROST))
+		#endif
+
 		resetPID(); 										// Инициализировать переменные ПИД регулятора
 		if(Charts_when_comp_on) task_updstat_chars = 0;
 	    command_completed = rtcSAM3X8.unixtime();
@@ -3295,13 +3314,13 @@ xNextStop:
 		set_Error(ERR_COMP_ERR,(char*)__FUNCTION__);return;
 	}
 
-	// 4. Если нужно облегченный пуск  в зависимости от флага fEEV_light_start
+	// 5. Если нужно облегченный пуск  в зависимости от флага fEEV_light_start
 #ifdef EEV_DEF
 	if(dEEV.get_LightStart())                  //  ЭРВ ОБЛЕГЧЕННЫЙ ПУСК
 	{
-		journal.jprintf(" Pause %d second before go starting position EEV . . .\n", dEEV.get_DelayStartPos());
+		journal.jprintf(" Pause %ds before go start position EEV . . .\n", dEEV.get_DelayStartPos());
 		_delay(dEEV.get_DelayStartPos() * 1000);  // Задержка после включения компрессора до ухода на рабочую позицию
-		journal.jprintf(EEV_go);
+		journal.jprintf(" EEV go ");
 		if((dEEV.get_StartFlagPos()) || ((lastEEV == -1))) {
 			dEEV.set_EEV(dEEV.get_StartPos());
 #ifdef EEV_PREFER_PERCENT
@@ -3320,7 +3339,7 @@ xNextStop:
 		}
 	}
 #endif
-	// 5. Обеспечение задержки отслеживания ЭРВ
+	// 6. Обеспечение задержки отслеживания ЭРВ
 #ifdef EEV_DEF
 	if (lastEEV>0)                                            // НЕ первое включение компрессора после старта ТН
 	{
@@ -3366,16 +3385,27 @@ void HeatPump::compressorOFF()
 	checkEVI();                                                     // выключить ЭВИ
 #endif
 
+#if defined(EEV_DEF) && defined(EEV_CLOSE_IMMEDIATELY)
+	if(dEEV.get_EevClose())                                 // Hазбираемся с ЭРВ
+	{
+		//journal.jprintf(" Pause before closing EEV %d sec . . .\n", dEEV.get_delayOff());
+		_delay(dEEV.get_delayOff() * 1000);                              // пауза перед закрытием ЭРВ
+		dEEV.set_EEV(EEV_CLOSE_STEP);                                    // Если нужно, то закрыть ЭРВ
+		journal.jprintf(" EEV closed\n");
+	}
+#endif
+
 	PUMPS_OFF;                                                          // выключить насосы + задержка
 
 	onBoiler = false;
 	offBoiler = rtcSAM3X8.unixtime();
 
-#ifdef EEV_DEF
+
+#if defined(EEV_DEF) && !defined(EEV_CLOSE_IMMEDIATELY)
 	if(dEEV.get_EevClose())                                 // Hазбираемся с ЭРВ
 	{
 		journal.jprintf(" Pause before closing EEV %d sec . . .\n", dEEV.get_delayOff());
-		_delay(dEEV.get_delayOff() * 1000);                                // пауза перед закрытием ЭРВ  на инверторе компрессор останавливается до 2 минут
+		_delay(dEEV.get_delayOff() * 1000);                              // пауза перед закрытием ЭРВ
 		dEEV.set_EEV(EEV_CLOSE_STEP);                                    // Если нужно, то закрыть ЭРВ
 		journal.jprintf(" EEV closed\n");
 	}
@@ -3841,18 +3871,6 @@ void HeatPump::calculatePower()
 
 	// Получение мощностей потребления электроэнергии
 	int32_t _power220 = 0;
-#ifdef CORRECT_POWER220_EXCL_RBOILER
-  #ifdef WR_Load_pins_Boiler_INDEX
-   #ifdef WR_Boiler_Substitution_INDEX
-	_power220 -= WR_LoadRun[digitalReadDirect(PIN_WR_Boiler_Substitution) ? WR_Boiler_Substitution_INDEX : WR_Load_pins_Boiler_INDEX];
-   #else
-	_power220 -= WR_LoadRun[WR_Load_pins_Boiler_INDEX];
-   #endif
-  #else
-	if(dRelay[RBOILER].get_Relay()) _power220 -= CORRECT_POWER220_EXCL_RBOILER;
-  #endif
-	if(_power220) _power220 = _power220 * dSDM.get_voltage() / 220;
-#endif
 #ifdef USE_ELECTROMETER_SDM  // Если есть электросчетчик можно рассчитать полное потребление (с насосами)
 	if(dSDM.get_link()) {  // Если счетчик работает (связь не утеряна)
 		_power220 += dSDM.get_power();
@@ -3870,7 +3888,45 @@ void HeatPump::calculatePower()
 #ifdef ADD_FC_POWER_WHEN_GENERATOR
 	if(GETBIT(Option.flags, fBackupPower)) _power220 += dFC.get_power();  // получить текущую мощность компрессора
 #endif
+
+	corr_power220 = 0;
+#ifdef CORRECT_POWER220_EXCL_RBOILER
+  #ifdef WR_Load_pins_Boiler_INDEX
+   #ifdef WR_Boiler_Substitution_INDEX
+	corr_power220 = WR_LoadRun[digitalReadDirect(PIN_WR_Boiler_Substitution) ? WR_Boiler_Substitution_INDEX : WR_Load_pins_Boiler_INDEX]
+   #else
+	corr_power220 = WR_LoadRun[WR_Load_pins_Boiler_INDEX]
+   #endif
+   #ifndef PWM_ACCURATE_POWER
+				* dSDM.get_voltage() / 220
+   #endif
+				;
+  #else
+	if(dRelay[RBOILER].get_Relay()) corr_power220 = CORRECT_POWER220_EXCL_RBOILER * dSDM.get_voltage() / 220;
+  #endif
+	_power220 -= corr_power220;
+	corr_power220 = 0;
+#else
+	#ifdef WATTROUTER
+		#ifdef WR_Load_pins_Boiler_INDEX
+		 #ifdef WR_Boiler_Substitution_INDEX
+	corr_power220 = WR_LoadRun[digitalReadDirect(PIN_WR_Boiler_Substitution) ? WR_Boiler_Substitution_INDEX : WR_Load_pins_Boiler_INDEX]
+		 #else
+	corr_power220 = WR_LoadRun[WR_Load_pins_Boiler_INDEX]
+		 #endif
+		#endif
+		#ifndef PWM_ACCURATE_POWER
+					* dSDM.get_voltage() / 220
+		#endif
+					;
+	if(!dRelay[RBOILER].get_Relay()) { // Если греем ваттроутером, то вычесть
+		_power220 -= corr_power220;
+		corr_power220 = 0;
+	}
+	#endif
+#endif
 	power220 = _power220;
+	_power220 -= corr_power220; // Из мгновенного COP убираем бойлер
 
 	// Расчет COP
 #ifndef COP_ALL_CALC    	// если COP надо считать не всегда

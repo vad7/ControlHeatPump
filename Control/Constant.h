@@ -24,8 +24,8 @@
 #include "Util.h"
 
 // ОПЦИИ КОМПИЛЯЦИИ ПРОЕКТА -------------------------------------------------------
-#define VERSION			"1.107"				// Версия прошивки
-#define VER_SAVE		149					// Версия формата сохраняемых данных в I2C память
+#define VERSION			"1.110"				// Версия прошивки
+#define VER_SAVE		150					// Версия формата сохраняемых данных в I2C память
 #ifndef UART_SPEED
 #define UART_SPEED		115200				// Скорость отладочного порта
 #endif
@@ -268,7 +268,7 @@ const uint16_t  defaultPort=80;
 #define HYSTERESIS_BoilerTogetherHeatSt	500	// Гистерезис совместного нагрева бойлера с отоплением в сотых градуса
 #define HYSTERESIS_BoilerTogetherHeatEn	200	// Гистерезис совместного нагрева бойлера с отоплением в сотых градуса
 #define HYSTERESIS_BoilerAddHeat      	300	// Гистерезис нагрева бойлера до температуры догрева, в сотых градуса
-#define HYSTERESIS_HeatFloor		 	30	// Гистерезис раздельного управления реле теплого пола
+#define HYSTERESIS_HeatFloor		 	20	// Гистерезис раздельного управления реле теплого пола
 #define SALMONELLA_DAY    3              // День когда включается алгоритм обеззараживания воды (Понедельник 1 воскресенье 7)
 #define SALMONELLA_HOUR   1              // Час когда включается алгоритм обеззараживания воды (должно быть 0 минут)
 #define SALMONELLA_TEMP   (70*100)       // Температура которая поддерживается для обеззараживания (сотые градуса)
@@ -296,6 +296,8 @@ const uint16_t  defaultPort=80;
 #define T_NUMSAMLES       1              // Число значений для усреднения показаний температуры
 #define GAP_TEMP_VAL      300      		 // Допустимая разница (в сотых C) показаний между двумя считываниями (борьба с помехами) - при привышении ошибка не возникает, но данные пропускаются.
 #define GAP_NUMBER        3  		     // Максимальное число идущих подряд показаний превышающих GAP_TEMP_VAL, после этого эти показания выдаются за действительные
+#define GAP_TEMP_VAL_NERR 50     	     // Датчики с флагом игнорировать ERR. Допустимая разница (в сотых C) показаний между двумя считываниями (борьба с помехами) - при привышении ошибка не возникает, но данные пропускаются.
+#define GAP_NUMBER_NERR   4       	     // Датчики с флагом игнорировать ERR. Максимальное число идущих подряд показаний превышающих на GAP_TEMP_VAL, после этого эти показания выдаются за действительные
 #define GAP_TEMP_VAL_CRC  200     	     // Датчики с флагом игнорировать CRC. Допустимая разница (в сотых C) показаний между двумя считываниями (борьба с помехами) - при привышении ошибка не возникает, но данные пропускаются.
 #define GAP_NUMBER_CRC    5       	     // Датчики с флагом игнорировать CRC. Максимальное число идущих подряд показаний превышающих на GAP_TEMP_VAL, после этого эти показания выдаются за действительные
 #endif
@@ -449,6 +451,7 @@ const char *eev_TARGET        =  {"TRG"};        	// Перегрев ЦЕЛЬ (
 const char *eev_tOverheatTCOMP=  {"TRG2"};          // Перегрев2 цель (сотые градуса)
 const char *eev_tOverheat2_low = {"T2L"};
 const char *eev_tOverheat2_low_hyst = {"T2H"};
+const char *eev_tOverheat2_critical = {"T2C"};
 const char *eev_tOverheatTCOMP_delta= {"TRG2D"};    // Перегрев2 дельта цель (сотые градуса)
 const char *eev_KP            =  {"KP"};            // ПИД Коэф пропорц.   В ТЫСЯЧНЫХ!!!
 const char *eev_KI            =  {"KI"};            // ПИД Коэф интегр.  для настройки Ki=0   В ТЫСЯЧНЫХ!!!
@@ -499,6 +502,8 @@ const char *eev_fEEV_DirectAlgorithm = {"DIR"};		// флаг fEEV_DirectAlgorith
 const char *eev_trend_threshold ={"TTH"};
 const char *eev_trend_mul_threshold = {"TMT"};
 const char *eev_DebugToLog    = {"DBG"};
+const char *eev_fEEV_BoilerStartPos={"BF"};
+const char *eev_BoilerStartPos={"BS"};
 
 // Описание имен параметров MQTT для функций get_paramMQTT set_paramMQTT
 const char *mqtt_USE_TS           =  {"USE_TS"};         // флаг использования ThingSpeak - формат передачи для клиента
@@ -694,13 +699,15 @@ const char *fc_DT_TEMP           = {"DT"};           	  // Превышение 
 const char *fc_DT_TEMP_BOILER    = {"DTB"};    			  // Превышение температуры от уставок (подача) при которой срабатыват защита ГВС в сотых градуса
 const char *fc_MB_ERR		     = {"MB_ERR"};			  // Ошибок Modbus
 const char *fc_FC_TIME_READ      = {"TR"};				  // Время опроса
-const char *fc_fFC_RetOil	     = {"FRO"};               // Флаг возврат масла
-const char *fc_FC_RETOIL_FREQ	 = {"FRF"};				  // Частота
-const char *fc_ReturnOilPeriod   = {"ROP"};               // Время возварта масла
-const char *fc_ReturnOilPerDivHz = {"ROPH"};              // Частота при которой возвращается масло
-const char *fc_ReturnOilEEV      = {"ROE"};               // Шаги ЭРВ при котором возвращается масло
 const char *fc_AdjustEEV_k       = {"EEVK"};
 const char *fc_PidMaxStep        = {"PMS"};
+const char *fc_fFC_RetOil	     = {"FRO"};               // Флаг возврат масла
+const char *fc_ReturnOilPeriod   = {"ROP"};               // Время возварта масла
+const char *fc_ReturnOilPerDivHz = {"ROPH"};              // Частота при которой возвращается масло
+const char *fc_ReturnOilTime     = {"ROT"};
+const char *fc_ReturnOilMinFreq  = {"ROM"};
+const char *fc_ReturnOilFreq     = {"ROF"};
+const char *fc_ReturnOil_AdjustEEV_k = {"REK"};
 
 // Описание имен параметров опций ТН  для функций get_optionHP ("get_oHP") set_optionHP ("set_oHP")
 const char *option_ADD_HEAT           = {"HEAT_list"};              // использование дополнительного нагревателя (значения 1 и 0)
@@ -744,7 +751,8 @@ const char *option_Charts_when_comp_on= {"CWCO"};				// Графики в пам
 const char *option_fBackupPower       = {"BPOW"};				// флаг Использование резервного питания от генератора (ограничение мощности) 
 const char *option_fBackupPowerInfo   = {"BP"};					// Работа от генератора
 const char *option_maxBackupPower     = {"MAXPOW"};				// Максимальная мощность при питании от генератора
-const char *option_fBackupPowerAuto	  = {"BPA"};
+const char *option_f2BackupPowerAuto  = {"BPA"};
+const char *option_f2NextionGenFlashing={"NGF"};
 const char *option_WF_ReqServer       = {"WFS"};
 const char *option_WF_ReqText         = {"WFT"};
 

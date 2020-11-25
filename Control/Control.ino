@@ -715,6 +715,9 @@ void vWeb0(void *)
 #ifdef WEATHER_FORECAST
 	static uint8_t WF_Day = 0;
 #endif
+#ifdef HTTP_MAP_RELAY_MAX
+	static uint32_t daily_http_time = 0;
+#endif
 #ifdef WATTROUTER
 	memset(WR_LoadRun, 0, sizeof(WR_LoadRun));
 	memset(WR_SwitchTime, 0, sizeof(WR_SwitchTime));
@@ -1162,7 +1165,7 @@ void vWeb0(void *)
 #endif   // MQTT
 
 #ifdef WEATHER_FORECAST
-			if(rtcSAM3X8.get_days() != WF_Day) {
+			if(active && rtcSAM3X8.get_days() != WF_Day) {
 				WF_BoilerTargetPercent = 100;
 				if(rtcSAM3X8.get_hours() == WR.WF_Hour && strlen(HP.Option.WF_ReqServer)) {
 					if(!active) WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
@@ -1171,6 +1174,33 @@ void vWeb0(void *)
 						if((HP.get_NetworkFlags() & (1<<fWebFullLog)) || rtcSAM3X8.get_minutes() == 59) journal.jprintf_time("WF: Request Error %d\n", err);
 					} else if(WF_ProcessForecast(Socket[MAIN_WEB_TASK].outBuf) == OK) {
 						WF_Day = rtcSAM3X8.get_days();
+					}
+					active = false;
+				}
+			}
+#endif
+#ifdef HTTP_MAP_RELAY_MAX
+			if(HP.IsWorkingNow()) {
+				uint32_t t = rtcSAM3X8.unixtime();
+				if(t - daily_http_time > 600UL) { // дискретность 10 минут
+					daily_http_time = t;
+					daily_http_time -= daily_http_time % 600;
+					uint32_t tt = rtcSAM3X8.get_hours() * 100 + rtcSAM3X8.get_minutes();
+					for(uint8_t i = 0; i < DAILY_SWITCH_MAX; i++) {
+						if(HP.Prof.DailySwitch[i].Device == 0) break;
+						if(HP.Prof.DailySwitch[i].Device < RNUMBER) continue;
+						if(!active) WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+						uint32_t st = HP.Prof.DailySwitch[i].TimeOn * 10;
+						uint32_t end = HP.Prof.DailySwitch[i].TimeOff * 10;
+						strcpy(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_RELAY_SW_1);
+						_itoa(HP.Prof.DailySwitch[i].Device - RNUMBER+1, Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1);
+						strcat(Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1, HTTP_MAP_RELAY_SW_2);
+						_itoa(((end >= st && tt >= st && tt <= end) || (end < st && (tt >= st || tt <= end))) && !HP.NO_Power && !GETBIT(HP.Option.flags, fBackupPower),
+								Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1 + sizeof(HTTP_MAP_RELAY_SW_2)-1);
+						if(Send_HTTP_Request(HTTP_MAP_Server, Socket[MAIN_WEB_TASK].outBuf, 3) == 1) { // Ok?
+						} else {
+							if(HP.get_NetworkFlags() & (1<<fWebLogError)) journal.jprintf("Error set relay HTTP-%d relay!\n", HP.Prof.DailySwitch[i].Device - RNUMBER+1);
+						}
 					}
 				}
 			}
@@ -1284,7 +1314,7 @@ void vReadSensor(void *)
 				temp = 0;
 				uint8_t cnt = 0;
 				for(i = 0; i < TNUMBER; i++) {
-					if(HP.sTemp[i].get_setup_flag(fTEMP_as_TIN_average) && HP.sTemp[i].get_Temp() != STARTTEMP) {
+					if(GETBIT(HP.Prof.SaveON.bTIN, i) && HP.sTemp[i].get_setup_flag(fTEMP_as_TIN_average) && HP.sTemp[i].get_Temp() != STARTTEMP) {
 						temp += HP.sTemp[i].get_Temp();
 						cnt++;
 					}
@@ -1294,7 +1324,7 @@ void vReadSensor(void *)
 			int16_t temp2 = temp;
 			if(GETBIT(flags, fTEMP_as_TIN_min)) { // Выбор минимальной температуры для TIN
 				for(i = 0; i < TNUMBER; i++) {
-					if(HP.sTemp[i].get_setup_flag(fTEMP_as_TIN_min) && temp2 > HP.sTemp[i].get_Temp()) temp2 = HP.sTemp[i].get_Temp();
+					if(GETBIT(HP.Prof.SaveON.bTIN, i) && HP.sTemp[i].get_setup_flag(fTEMP_as_TIN_min) && temp2 > HP.sTemp[i].get_Temp()) temp2 = HP.sTemp[i].get_Temp();
 				}
 			}
 			if(temp2 != STARTTEMP) HP.sTemp[TIN].set_Temp(temp2);
@@ -1707,8 +1737,10 @@ void vUpdateEEV(void *)
 	for(;;) {
 		while(!(HP.get_startCompressor() && (rtcSAM3X8.unixtime() - HP.get_startCompressor() > HP.dEEV.get_delayOnPid() && HP.dEEV.get_delayOnPid() != 255))) { // ЭРВ контролирует если прошла задержка после включения компрессора (пауза перед началом работы ПИД) и задержка != 255
 			vTaskDelay(TIME_EEV_BEFORE_PID / portTICK_PERIOD_MS); // Период управления ЭРВ (цикл управления)
-			if(GETBIT(HP.dEEV.get_flags(), fEEV_StartPosByTemp)) { // Скорректировать ЭРВ по температуре подачи
-				HP.dEEV.set_EEV(HP.dEEV.get_StartPos());
+			if(HP.dEEV.get_flags() & (1<<fEEV_StartPosByTemp)) { // Скорректировать ЭРВ по температуре подачи
+				if(!(HP.get_modWork() & pBOILER) || !GETBIT(HP.dEEV.get_flags(), fEEV_BoilerStartPos)) {
+					HP.dEEV.set_EEV(HP.dEEV.get_StartPos());
+				}
 			}
 		}
 		HP.dEEV.resetPID();
@@ -1867,6 +1899,7 @@ void vServiceHP(void *)
 					uint32_t tt = rtcSAM3X8.get_hours() * 100 + m;
 					for(uint8_t i = 0; i < DAILY_SWITCH_MAX; i++) {
 						if(HP.Prof.DailySwitch[i].Device == 0) break;
+						if(HP.Prof.DailySwitch[i].Device >= RNUMBER) continue;
 						uint32_t st = HP.Prof.DailySwitch[i].TimeOn * 10;
 						uint32_t end = HP.Prof.DailySwitch[i].TimeOff * 10;
 						HP.dRelay[HP.Prof.DailySwitch[i].Device].set_Relay(((end >= st && tt >= st && tt <= end) || (end < st && (tt >= st || tt <= end)))

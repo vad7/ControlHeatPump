@@ -2537,7 +2537,7 @@ const char *noteTemp[] = {"Температура улицы",
      		{ STATS_OBJ_COP_Full, "Full COP" }
     	};
     	const Charts_Const_setup ChartsOnFlySetup[] = {
-    		{ STATS_OBJ_Overcool, "Переохлаждение" }, // T[PCON] - TCONOUT
+    //		{ STATS_OBJ_Overcool, "Переохлаждение" }, // T[PCON] - TCONOUT
     		{ STATS_OBJ_TCOMP_TCON, "Нагнетание - Конденсация" }, // TCOMP - TCON Отключать нельзя используется на странице ЭРВ
     		{ STATS_OBJ_Delta_GEO, "Δ t° геоконтура" }, // TEVAING - TEVAOUTG
     		{ STATS_OBJ_Delta_OUT, "Δ t° выхода" }, // TCONOUTG - TCONING
@@ -2557,7 +2557,7 @@ const char *noteTemp[] = {"Температура улицы",
       	{ STATS_OBJ_Temp, TCONOUTG, nameTemp[TCONOUTG] },
       	{ STATS_OBJ_Temp, TEVAOUT, nameTemp[TEVAOUT] },
 //    	{ STATS_OBJ_Temp, TCONOUT, noteTemp[TCONOUT] },
-//		{ STATS_OBJ_PressTemp, PEVA, "Температура кипения" },
+		{ STATS_OBJ_PressTemp, PEVA, "Температура кипения" },
 //		{ STATS_OBJ_PressTemp, PCON, "Температура конденсации" },
 //		{ STATS_OBJ_Flow, FLOWEVA, noteFrequency[FLOWEVA] },
 		{ STATS_OBJ_Flow, FLOWCON, nameFrequency[FLOWCON] },
@@ -3324,6 +3324,7 @@ const char *noteTemp[] = {"Температура улицы",
 	#define NEXTION                 // Разрешить использование дисплея. ЗАКОМЕНТИРУЙТЕ эту строку, что бы не использовать дисплей
 	#ifdef 	NEXTION
 	//#define NEXTION_GENERATOR		// На дисплее кнопкой можно переключать "Работа от генератора" (ограничение мощности потребления)
+	#define NEXTION_GENERATOR_FLASHING // Моргать картинкой на дисплее, если работаем от генератора
 	#define NEXTION_SCR0_DIS_ON_OFF	// Отключить реакцию на кнопку Вкл/Выкл на главном экране, есть еще одна кнопка Вкл/Выкл на экране Профили.
 	#endif
 	#define EXTERNAL_AREF     	  	// Использование внешней опоры для АЦП
@@ -3705,7 +3706,7 @@ const char *noteTemp[] = {"Температура улицы",
 	#define CORRECT_POWER220				// Корректировка потребляемой мощности из электросети (и для расчета COP), если включены указанные реле, Вт при 220V
 	#ifdef CORRECT_POWER220
 		CORRECT_POWER220_STRUCT correct_power220[] = { {RPUMPFL, 25} }; // Обороты: III = 45 Вт, II = 22 Вт, ТП-4 = 25
-		#define CORRECT_POWER220_EXCL_RBOILER// Вычитание мощности бойлера, включая данные ваттроутера, Вт при 220V
+		//#define CORRECT_POWER220_EXCL_RBOILER// Вычитание мощности бойлера, включая данные ваттроутера, Вт при 220V. Если заремарено, то вычитается только ваттроутер.
 	#endif
 	#define STATS_SKIP_COP_WHEN_RELAY_ON 	RBOILER	// Пропускать логирование COP при включенном реле
 
@@ -3869,9 +3870,11 @@ const char *noteTemp[] = {"Температура улицы",
 
 	#define TIME_READ_SENSOR  2000        // Период опроса датчиков (мсек)
 	#define T_NUMSAMLES       1           // Число значений для усреднения показаний температуры
-	#define GAP_TEMP_VAL      500         // Допустимая разница (в сотых C) показаний между двумя считываниями (борьба с помехами) - при привышении ошибка не возникает, но данные пропускаются.
+	#define GAP_TEMP_VAL      350         // Допустимая разница (в сотых C) показаний между двумя считываниями (борьба с помехами) - при привышении ошибка не возникает, но данные пропускаются.
+	#define GAP_TEMP_VAL_NERR 50     	  // Датчики с флагом игнорировать ошибки. Допустимая разница (в сотых C) показаний между двумя считываниями (борьба с помехами) - при привышении ошибка не возникает, но данные пропускаются.
 	#define GAP_TEMP_VAL_CRC  200     	  // Датчики с флагом игнорировать CRC. Допустимая разница (в сотых C) показаний между двумя считываниями (борьба с помехами) - при привышении ошибка не возникает, но данные пропускаются.
 	#define GAP_NUMBER        3       	  // Максимальное число идущих подряд показаний превышающих на GAP_TEMP_VAL, после этого эти показания выдаются за действительные
+	#define GAP_NUMBER_NERR   4           // Датчики с флагом игнорировать ERR. Максимальное число идущих подряд показаний превышающих на GAP_TEMP_VAL, после этого эти показания выдаются за действительные
 	#define GAP_NUMBER_CRC    7       	  // Датчики с флагом игнорировать CRC. Максимальное число идущих подряд показаний превышающих на GAP_TEMP_VAL, после этого эти показания выдаются за действительные
 	#define GAP_NUMBER_BAD    10          // Максимальное число идущих подряд показаний превышающих GAP_TEMP_VAL для датчиков с флагами "игнорировать ошибки" + "не логировать ошибки"
 
@@ -3888,13 +3891,14 @@ const char *noteTemp[] = {"Температура улицы",
 	// ЭРВ ТОЛЬКО ОДНА ШТУКА ВСЕГДА (не массив) ------------------
 	#define EEV_DEF                     // Наличие ЭРВ в конфигурации
 	#ifdef EEV_DEF                                  // ЭРВ настройки
+	#define EEV_CLOSE_IMMEDIATELY				// Закрывать ЭРВ сразу после останова компрессора, иначе после останова насосов
 	#define EEV_PREFER_PERCENT					  // Предпочтительно положение ЭРВ в %. (Для графиков и т.п.)
 	#define EEV_STEPS              480            // Число шагов ЭРВ 480
 	#define EEV_CLOSE_STEP         0              // ЭРВ закрыт
 	#define EEV_QUEUE              10             // Длина очереди команд шагового двигателя ЭРВ
 	#define EEV_PHASE              PHASE_8s       // ЗАДАННАЯ (можно менять) последовательность (шагов) при движении ЭРВ
 	#define EEV_SET_ZERO_OVERRIDE  8			  // Добавка к полному закрытию при установке нуля, шаги
-	#define EEV_OVERHEAT2_CRITICAL 30             // Критическое значение перегрева 2, сотые градуса
+	#define EEV_OVERHEAT2_CRITICAL 30             // Критическое значение перегрева 2, сотые градуса, по умолчанию
 	//#define EEV_INVERT                          // Признак инвертирования движения ЭРВ  (меняем если крутит в обратную сторону)
 	//#define EEV_MIN_CONTROL                     // Контроль нижней границы ЭРВ - останов по ошибке.
 	//#define EEV_MAX_CONTROL                     // Контроль верхней границы ЭРВ - останов по ошибке.
@@ -3976,8 +3980,8 @@ const char *noteTemp[] = {"Температура улицы",
 	#define FC_DEACCEL_TIME          (1100)   	  	// Время торможения компрессора в сотых сек
 	#define FC_START_PID_DELAY       (30*100)      	// Задержка ПИД после старта компрессора
 
-	#define FC_RETOIL_FREQ			  4500		    // Частота меньше которой должен происходить возврат масла, в сотых Гц
-	#define FC_RETOIL_TIME			 (16/(FC_TIME_READ/1000)) // Время возврата, сек
+	#define FC_RETOIL_FREQ			  4500		    // Возврат масла, Частота меньше которой должен происходить возврат масла по умолчанию, в сотых Гц
+	#define FC_RETOIL_TIME			 (32/(FC_TIME_READ/1000)) // Время возврата, в периодах опроса инвертора (FC_TIME_READ)
 
 	#define COP_ALL_CALC   // Проводить расчет КОП всегда, если дефайна нет, то КОП считается ТОЛЬКО при работающем компрессоре, в паузах ставится 0
 
@@ -3991,7 +3995,7 @@ const char *noteTemp[] = {"Температура улицы",
 	#define DEF_DELAY_R4WAY        		20             // Задержка между переключением 4-х ходового клапана и включением компрессора, для выравнивания давлений (сек). Если включены эти опции (переключение тепло-холод)
 	#define DEF_DELAY_BOILER_SW   		15             // Пауза (сек) после переключение ГВС - выравниваем температуру в контуре отопления/ГВС что бы сразу защиты не сработали
 	#define DEF_DELAY_BOILER_OFF 		30             // Время (сек) на сколько блокируются защиты при переходе с ГВС на отопление и охлаждение слишком горяче после ГВС
-	#define DELAY_AFTER_SWITCH_RELAY    250            // Задержка после переключения реле, для сглаживания потребления и уменьшения помех(мс)
+	#define DELAY_AFTER_SWITCH_RELAY    100            // Задержка после переключения реле, для сглаживания потребления и уменьшения помех(мс)
 	#define DELAY_BEFORE_STOP_IN_PUMP	15			   // Задержка перед выключением насоса геоконтура, насос отопления отключается позже (сек)
 
 	//#define NOT_RESTART_ON_CRITICAL_ERRORS			// Не пытаться перезапустить ТН после этих ошибок
@@ -4060,8 +4064,9 @@ const char *noteTemp[] = {"Температура улицы",
 	#define HTTP_MAP_Server			"192.168.0.9"					// Адрес системы мониторинга Malina2 инвертора МАП МикроАрт
 	#define HTTP_MAP_Read_MAP		"/read_json.php?device=map"		// Запрос чтения массива данных МАП
 	#define HTTP_MAP_Read_MPPT		"/read_json.php?device=mppt"	// Запрос чтения массива данных КЭС
-	#define HTTP_MAP_RELAY_SW_1		"/write_sec.php?id=1&relay="	// 1..3
+	#define HTTP_MAP_RELAY_SW_1		"/write_sec.php?id=1&relay="	// 1..HTTP_MAP_RELAY_MAX
 	#define HTTP_MAP_RELAY_SW_2		"&mode="						// On = 1, Off = 0
+	#define HTTP_MAP_RELAY_MAX		3
 
 #if defined(WR_CurrentSensor_4_20mA)
 	#define WEB0_FREQUENT_JOB_PERIOD 	1000	 		// Периодичность важных функций в задаче WEB0, мс

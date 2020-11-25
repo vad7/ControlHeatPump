@@ -8,7 +8,7 @@
 	<script type="text/javascript">
 		window.onload = function() {
 		loadParam("get_oHP(HIST),get_isRelay(RHEAT),get_oHP(TEMP_RHEAT),get_oHP(PUMP_WORK),get_oHP(PUMP_PAUSE),get_oHP(ATTEMPT),get_oHP(HEAT_list),get_oHP(BEEP),get_oHP(NXT),get_oHP(NXTS),get_oHP(NXTD),get_oHP(NXTW),get_oHP(WSPIF),get_oHP(LOGWS),get_oHP(PAUSE),get_oHP(TIME_CHART),get_oHP(CWCO),get_oHP(BPOW),get_oHP(MAXPOW),get_oHP(MCON),get_oHP(BPA),get_oHP(SW)");
-		loadParam("get_oHP(DLONP),get_oHP(DLOFP),get_oHP(DLSR),get_oHP(DLRS),get_oHP(DLTRV),get_oHP(DLBSW),get_oHP(DLBOFF),get_oHP(SDM_LOGER),get_oHP(TEMP_EVI),get_oHP(SAVE_ON),get_oHP(SGL1W_1),get_oHP(SGL1W_2),get_oHP(SGL1W_3),get_oHP(SGL1W_4),get_oHP(SCG),get_oHP(SCGT),get_oHP(GSC),get_oHP(STD),get_oHP(SGD),get_oHP(SCGO),get_oHP(STO),get_oHP(STF),get_oHP(SP)");
+		loadParam("get_oHP(DLONP),get_oHP(DLOFP),get_oHP(DLSR),get_oHP(DLRS),get_oHP(DLTRV),get_oHP(DLBSW),get_oHP(DLBOFF),get_oHP(SDM_LOGER),get_oHP(TEMP_EVI),get_oHP(SAVE_ON),get_oHP(SGL1W_1),get_oHP(SGL1W_2),get_oHP(SGL1W_3),get_oHP(SGL1W_4),get_oHP(SCG),get_oHP(SCGT),get_oHP(GSC),get_oHP(STD),get_oHP(SGD),get_oHP(SCGO),get_oHP(STO),get_oHP(STF),get_oHP(SP),get_oHP(NGF)");
 		loadParam("get_oHP(WFS),get_oHP(WFT)");
 	}; 
 	</script>
@@ -119,6 +119,14 @@
 			<td><b>Времена и задержки</b></td><td></td>
 		</tr>
 		<tr>
+			<td>Задержка включения ТН после внезапного сброса контроллера (сек.) [0...6000]</td>
+			<td nowrap><input type="number" id="get_ohp-dlsr"> <input type="submit" value=">" onclick="setParam('get_oHP(DLSR)');"></td>
+		</tr>	
+		<tr>
+			<td>Задержка перед повторным включением ТН при ошибке (попытке пуска) (сек.) [0...6000]</td>
+			<td nowrap><input type="number" id="get_ohp-dlrs"> <input type="submit" value=">" onclick="setParam('get_oHP(DLRS)');"></td>
+		</tr>	
+		<tr>
 			<td>Минимальный простой компрессора перед включением (мин.) [0..999]</td>
 			<td nowrap><input id="get_ohp-pause" type="number" min="0" max="999" step="1"> <input type="submit" value=">" onclick="setParam('get_oHP(PAUSE)');"></td>
 		</tr>						
@@ -131,20 +139,12 @@
 			<td nowrap><input type="number" id="get_ohp-dlonp"> <input type="submit" value=">" onclick="setParam('get_oHP(DLONP)');"></td>
 		</tr>	
 		<tr>
-			<td>Задержка выключения насоса отопления после выключения компрессора (сек.) [0...900]</td>
-			<td nowrap><input type="number" id="get_ohp-dlofp"> <input type="submit" value=">" onclick="setParam('get_oHP(DLOFP)');"></td>
-		</tr>	
-		<tr>
-			<td>Задержка включения ТН после внезапного сброса контроллера (сек.) [0...6000]</td>
-			<td nowrap><input type="number" id="get_ohp-dlsr"> <input type="submit" value=">" onclick="setParam('get_oHP(DLSR)');"></td>
-		</tr>	
-		<tr>
-			<td>Задержка перед повторным включением ТН при ошибке (попытке пуска) (сек.) [0...6000]</td>
-			<td nowrap><input type="number" id="get_ohp-dlrs"> <input type="submit" value=">" onclick="setParam('get_oHP(DLRS)');"></td>
-		</tr>	
-		<tr>
 			<td>Задержка между переключением реверсивного клапана и включением компрессора (сек.) [0...600]</td>
 			<td nowrap><input type="number" id="get_ohp-dltrv"> <input type="submit" value=">" onclick="setParam('get_oHP(DLTRV)');"></td>
+		</tr>	
+		<tr>
+			<td>Задержка выключения насоса отопления после выключения компрессора (сек.) [0...900]</td>
+			<td nowrap><input type="number" id="get_ohp-dlofp"> <input type="submit" value=">" onclick="setParam('get_oHP(DLOFP)');"></td>
 		</tr>	
 		<tr>
 			<td>Пауза после переключения ГВС (сек.) [0...1200]</td>
@@ -190,6 +190,10 @@
 		<tr>
 			<td>Включать дисплей при пуске компрессора</td>
 			<td><input type="checkbox" id="get_ohp-nxtw" onchange="setParam('get_oHP(NXTW)');"></td>
+		</tr>	
+		<tr>
+			<td>Моргать дисплеем при работе от резервного питания</td>
+			<td><input type="checkbox" id="get_ohp-ngf" onchange="setParam('get_oHP(NGF)');"></td>
 		</tr>	
 		<tr>
 			<td>Время засыпания дисплея Nextion (мин.) [0..255] <sup>10</sup></td>
