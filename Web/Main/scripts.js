@@ -1,5 +1,5 @@
-// Copyright (c) 2016-2020 by Pavel Panfilov <firstlast2007@gmail.com> skype pav2000pav
-// &                       by Vadim Kulakov vad7@yahoo.com, vad711
+// Copyright (c) 2016-2021 by Vadim Kulakov vad7@yahoo.com, vad711
+// &                       by Pavel Panfilov <firstlast2007@gmail.com> pav2000
 var VER_WEB = "1.110";
 var urlcontrol = ''; //  автоопределение (если адрес сервера совпадает с адресом контроллера)
 // адрес и порт контроллера, если адрес сервера отличен от адреса контроллера (не рекомендуется)
