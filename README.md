@@ -51,7 +51,7 @@ https://www.forumhouse.ru/threads/492563/
 Скриншеты веб-интерфейса:
 
 ![Состояние](https://user-images.githubusercontent.com/6220128/56410007-3079bb00-6284-11e9-829b-f6a959f91073.png)
-![Схема](https://user-images.githubusercontent.com/6220128/132806410-5ed4e423-3ded-4a12-b5df-ac968cfc52ca.png
+![Схема](https://user-images.githubusercontent.com/6220128/132806410-5ed4e423-3ded-4a12-b5df-ac968cfc52ca.png)
 ![ЭРВ](https://user-images.githubusercontent.com/6220128/56410010-3079bb00-6284-11e9-9673-fb239037f33a.png)
 ![Настройки](https://user-images.githubusercontent.com/6220128/132806926-92010a49-bd0e-427d-a8c2-e4e657372f62.png)
 ![Расписание](https://user-images.githubusercontent.com/6220128/56410004-2fe12480-6284-11e9-8b03-78b331157580.png)
