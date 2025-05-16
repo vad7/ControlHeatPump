@@ -36,8 +36,7 @@
 22. Разъем для 4-х кнопок.<br>
 <br>
 Размер 176x120 мм, Arduino DUE выступает на 16 мм.<br>
-![Плата](https://github.com/vad7/ControlHeatPump/blob/master/Schemes/Project_Arduino DUE shield - Board 3D.jpg?raw=true)
-<br>
+<img src="https://github.com/vad7/ControlHeatPump/blob/master/Arduino%20DUE%20shield/Project_Arduino%20DUE%20shield%20-%20Board%203D.jpg?raw=trueimg.png" alt="qr"/>
 <br>
 <br>
 1. Поддержка символьного дисплея 20x4 символов (LCD2004), может работать совместно с Nextion.<br>
