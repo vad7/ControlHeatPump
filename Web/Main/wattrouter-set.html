@@ -1,0 +1,136 @@
+﻿<html lang="ru"><head><title>Ваттроутер. Народный контроллер ТН</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" type="text/css" href="style.css">
+<script type='text/javascript' src='scripts.js'></script>
+<script type="text/javascript">
+urlupdate = 2000;
+var Settings = true;
+var edit_allowed = true;
+window.onload = function() {
+	loadParam("get_tblWR,get_oHP(WON),get_oHP(WM),get_oHP(WY),get_oHP(WO),get_oHP(WOM),get_oHP(WH),get_oHP(WA),get_oHP(WD),get_oHP(WDF),get_oHP(NS),get_oHP(W1),get_oHP(WFPT),get_oHP(WFPL),get_oHP(WSD),get_oHP(WAV),get_oHP(WMF),get_WR(2),get_oHP(WB)");
+	updateParam("get_WR(0),get_WR(1),get_WR(3),get_WR(4)");
+}
+function loadParam_after(paramid) {
+	if(edit_allowed && paramid.indexOf("et_WR(")!=-1) {
+		if(document.getElementById("get_ohp-won").checked) {
+		    var s = document.getElementById("get_wr-1").innerHTML;
+			if(s.length == 2) {
+			    document.getElementById("get_wrl-" + s[0]).disabled = false;
+			    document.getElementById("get_wrl-" + s[1]).disabled = true;
+			}
+		}
+	}
+	if(edit_allowed && paramid.indexOf("et_oHP(WON")!=-1) {
+		//if(paramid[0] == 's') location.reload();
+		var d = document.getElementById("get_ohp-won").checked;
+		for(var i = 0; i < 32; i++) {
+			element = document.getElementById("get_ohp-wp" + i);
+			if(element) element.disabled = d; else break;
+			if(!d) if((element = document.getElementById("get_wrl-" + i))) element.disabled = d;
+		}
+	}
+	if(paramid.indexOf("et_WRL")!=-1) {
+		for(var i = 0; i < 32; i++) {
+			element = document.getElementById("get_wrl-" + i);
+			if(element) { 
+				element.style = element.value != 0 ? "border-color:red" : "border-color:";
+			} else break;
+		}	
+	}
+	if(paramid.indexOf("et_tblWR")!=-1) {
+		if(!(edit_allowed = document.getElementById("mlogin").hidden) && document.baseURI.indexOf("file:/") == -1) {
+			var elements = document.getElementsByTagName("input");
+			for(var j = 0; j < elements.length; j++) elements[j].disabled = true;
+			document.getElementById("goback").disabled = false;
+		}
+	}
+}
+function run_pwm_calc() {
+	if(confirm("Запустить расчет таблицы PWM?\nПроцесс длится больше часа.")) {
+		var n = Number(prompt("Введите номер PWM нагрузки: "));
+		if(n) {
+			loadParam("get_WRC(" + (n - 1) + ")");
+			return 0;
+		}
+	}
+	return 1;
+}
+</script>
+</head>
+<body class="wattrouter">
+<div id="menu" class="menu"><script src="menu.js"></script></div>
+<div class="content">
+<h1>Настройки Ваттроутера <input style="float:none;" type="submit" value="Назад" id="goback" onclick="location.href='wattrouter.html'"> <input type="submit" value="Записать в EEPROM"  onclick='loadParam("set_SAVE")'></h1>
+<div class="row1">
+<h2>От солнца, Вт: <span id="get_wr-3">-</span></h2>
+<h2>Текущая мощность сети: <span id="get_wr-0">-</span></h2>
+<h2>Напряжение АКБ: <span id="get_wr-4">-</span></h2>
+<h2>Нагрузка:</h2>
+<table>
+	<thead><tr>
+		<th>Номер</th>
+		<th>Вкл</th>
+		<th>ШИМ</th>
+		<th>Мощность при 220V, Вт</th>
+		<th>Текущая мощность</th>
+		<th>Время переключения</th>
+		<th>Pin</th>
+	</tr></thead>
+	<tbody id="get_tblwr"></tbody>
+</table>            
+</div>       
+<div class="row1">
+Излишки: <span id="get_wr-2">-</span> кВтч<br><br>
+<h2>Настройки</h2>
+<table><thead>
+	<tr><th width="55%">Параметр</th><th width="45%">Значение</th></tr>
+	</thead><tbody>
+	<tr>
+		<td>Ваттроутер включен</td>
+		<td><input type="checkbox" id="get_ohp-won" onChange="setParam('get_oHP(WON)')"></td>
+	</tr><tr>
+		<td>Минимальная мощность, которую можно брать из сети, Вт</td>
+		<td nowrap><input id="get_ohp-wm" type="number" step="1"><input type="submit" value=">" onclick="setParam('get_oHP(WM)')"></td>
+	</tr><tr>
+		<td>Гистерезис минимальной мощности (внутри нагрузка не меняется), Вт</td>
+		<td nowrap><input id="get_ohp-wy" type="number" step="1"><input type="submit" value=">" onclick="setParam('get_oHP(WY)')"></td>
+	</tr><tr>
+		<td>Пропорциональное увеличение мин.мощности, в зависимости от мощности с панелей, +(SunPower/n)</td>
+		<td nowrap><input id="get_ohp-wsd" type="number" step="1"><input type="submit" value=">" onclick="setParam('get_oHP(WSD)')"></td>
+	</tr><tr>
+		<td>Период работы 1 секунда, Усреднение, Медианный фильтр</td>
+		<td><input type="checkbox" id="get_ohp-w1" onChange="setParam('get_oHP(W1)')"> <input type="checkbox" id="get_ohp-wav" onChange="setParam('get_oHP(WAV)')"> <input type="checkbox" id="get_ohp-wmf" onChange="setParam('get_oHP(WMF)')"></td>
+	</tr><tr>
+		<td>Минимальное напряжение на АКБ (Uэко), В</td>
+		<td nowrap><input id="get_ohp-wb" type="number" step="0.1"><input type="submit" value=">" onclick="setParam('get_oHP(WB)')"></td>
+	</tr><tr>
+		<td>Минимальная пауза переключения следующего реле, сек</td>
+		<td nowrap><input id="get_ohp-ns" type="number" step="1"><input type="submit" value=">" onclick="setParam('get_oHP(NS)')"></td>
+	</tr><tr>
+		<td>Минимальное время включения реле, сек</td>
+		<td nowrap><input id="get_ohp-wom" type="number" step="1"><input type="submit" value=">" onclick="setParam('get_oHP(WOM)')"></td>
+	</tr><tr>
+		<td>Задержка повторного включения реле, сек</td>
+		<td nowrap><input id="get_ohp-wo" type="number" step="1"><input type="submit" value=">" onclick="setParam('get_oHP(WO)')"></td>
+	</tr><tr>
+		<td>Гистерезис выключения релейной нагрузки, Вт</td>
+		<td nowrap><input id="get_ohp-wh" type="number" step="1"><input type="submit" value=">" onclick="setParam('get_oHP(WH)')"></td>
+	</tr><tr>
+		<td>Шаг увеличения для ШИМ нагрузки, Вт</td>
+		<td nowrap><input id="get_ohp-wa" type="number" step="1"><input type="submit" value=">" onclick="setParam('get_oHP(WA)')"></td>
+	</tr><tr>
+		<td>Время ограничения мощности ШИМ нагрузки, мин.</td>
+		<td nowrap><input id="get_ohp-wfpt" type="number" step="1"><input type="submit" value=">" onclick="setParam('get_oHP(WFPT)')"></td>
+	</tr><tr>
+		<td>Граница мощности ШИМ нагрузки (по времени), %</td>
+		<td nowrap><input id="get_ohp-wfpl" type="number" step="1"><input type="submit" value=">" onclick="setParam('get_oHP(WFPL)')"></td>
+	</tr><tr>
+		<td>Отладка в журнал (Вкл, Детально, Расчет PWM)</td>
+		<td><input type="checkbox" id="get_ohp-wd" onChange="setParam('get_oHP(WD)')"> <input type="checkbox" id="get_ohp-wdf" onChange="setParam('get_oHP(WDF)')"> <input type="checkbox" id="get_wrc-0" onChange="if(this.checked) if(run_pwm_calc()) this.checked=0;"></td>
+	</tr></tbody>
+</table>            
+</div>
+<span id="get_wr-1" hidden></span>
+</div>
+</body></html>

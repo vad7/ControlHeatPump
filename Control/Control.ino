@@ -16,14 +16,8 @@
  * GNU General Public License for more details.
  */
 // Последние версии
-// https://github.com/pav2000/ControlHeatPump проект на гитхабе (рабочие сборки)
 // https://github.com/vad7/ControlHeatPump - последняя стабильная версия
-// http://77.50.254.24:25402/ последняя версия демо
-// http://77.50.254.24:25402/mob/index.html мобильная морда демо
 // Архивные ссылки
-// http://pumps.tk/webtn.zip  последняя вебморда
-// http://pumps.tk/v09/ демо версия (старая)
-// http://pumps.tk/v09/mob мобильная демо версия (старая)
 // https://github.com/vad7/Arduino-DUE-WireSam  библиотеки доработанные vad711 при релизе добавляются в архив
 
 #include "Arduino.h"
@@ -51,6 +45,7 @@
 #include "Information.h"
 #include "MQTT.h"
 #include "Statistics.h"
+#include "LCD2004.h"
 
 void vUpdateStepperEEV(void *);
 #include "StepMotor.h"
@@ -117,6 +112,7 @@ void USART2_Handler(void)   // Interrupt handler for UART2
 	Serial4.IrqHandler();     // In turn calls on the Serial2 interrupt handler
 }
 #endif
+
 
 // Структура для хранения одного сокета, нужна для организации многопотоковой обработки
 #define fABORT_SOCK   0                     // флаг прекращения передачи (произошел сброс сети)
@@ -246,6 +242,18 @@ void setup() {
 #ifndef DEBUG_NATIVE_USB
 	SerialDbg.begin(UART_SPEED);                   // Если надо инициализировать отладочный порт
 #endif
+#ifdef LCD2004
+	lcd.begin(LCD_COLS, LCD_ROWS); // Setup: cols, rows
+	lcd.print("HeatPump v");
+	lcd.print(VERSION);
+	lcd.setCursor(0, 1);
+	lcd.print("(C) vad7@yahoo.com");
+	lcd.setCursor(0, 2);
+	lcd.print("CFG: ");
+	lcd.print(CONFIG_NAME);
+	lcd.setCursor(0, 3);
+	lcd.print("Loading...");
+#endif
 	while(ret) {
 		SerialDbg.print("Wrong I2C EEPROM or setup, press KEY[D");
 		SerialDbg.print(PIN_KEY1);
@@ -261,6 +269,9 @@ xRewriteHeader:
 				SerialDbg.print("Error ");
 				SerialDbg.print(ret);
 				SerialDbg.println(" write to EEPROM!");
+#ifdef TEST_BOARD
+				break;
+#endif
 			} else SerialDbg.println("Wait...");
 			while(1) ;
 		}
@@ -271,7 +282,7 @@ xRewriteHeader:
 		}
 	}
 #ifdef TEST_BOARD
-	//_delay(1);
+	//_delay(1); // Если зависает при загрузке (START...START...) - включить или выключить эту строку
 #endif
 	journal.Init();
 #ifdef POWER_CONTROL
@@ -283,7 +294,8 @@ xRewriteHeader:
 #ifdef TEST_BOARD
 	journal.jprintf("\n---> TEST BOARD!!!\n\n");
 #endif
-	journal.jprintf("Firmware version: %s\n",VERSION);
+	journal.jprintf("Config: %s\n", CONFIG_NAME);
+	journal.jprintf("Firmware version: %s\n", VERSION);
 	showID();                                                                  // информация о чипе
 	getIDchip((char*)Socket[0].inBuf);
 	journal.jprintf("Chip ID SAM3X8E: %s\n", Socket[0].inBuf);// информация об серийном номере чипа
@@ -408,6 +420,10 @@ x_I2C_init_std_message:
 				case I2C_ADR_EEPROM+1:	journal.jprintf(" - EEPROM second 64k page\n"); break;
 #endif
 #endif
+#ifdef TNTC_EXT
+				case I2C_ADR_ADS1115:
+				case I2C_ADR_ADS1115_2:		journal.jprintf(" - ADC ADS1115\n"); break;
+#endif
 				case I2C_ADR_RTC   :		journal.jprintf(" - RTC DS3231\n"); break; // 0x68
 				default            :		journal.jprintf(" - Unknow\n"); break; // не определенный тип
 				}
@@ -439,11 +455,13 @@ x_I2C_init_std_message:
 	journal.jprintf("2. Init %s main class . . .\n",(char*)nameHeatPump);
 	HP.initHeatPump();                           // Основной класс
 
+#ifndef LCD2004
 	// 5. Проверка сброса сети
 	// Нажатие при включении - режим safeNetwork (настрока сети по умолчанию 192.168.0.177  шлюз 192.168.0.1, не спрашивает пароль на вход в веб морду)
 	journal.jprintf("3. Read safe Network key . . .\n");
 	HP.safeNetwork = !digitalReadDirect(PIN_KEY1);
 	journal.jprintf(" Mode safeNetwork %s\n", HP.safeNetwork ? "ON" : "OFF");
+#endif
 
 	// 6. Чтение ЕЕПРОМ, надо раньше чем инициализация носителей веб морды, что бы знать откуда грузить
 	journal.jprintf("4. Load data from I2C memory . . .\n");
@@ -452,17 +470,32 @@ x_I2C_init_std_message:
 		journal.jprintf(" I2C memory is empty, a default settings will be used!\n");
 		HP.save_motoHour();
 	} else {
-		HP.load((uint8_t *)Socket[0].outBuf, 0);      // Загрузить настройки ТН
+		HP.load((uint8_t *)Socket[0].outBuf, 0);    // Загрузить настройки ТН
 		HP.Schdlr.load();							// Загрузка настроек расписания
 		HP.Prof.convert_to_new_version();
-		if(HP.Prof.load(HP.Option.numProf) < 0) journal.jprintf(" Error load profile #%d\n", HP.Option.numProf); // Загрузка текущего профиля
+		int e = HP.Prof.load(HP.Option.numProf);
+		if(e < 0) journal.jprintf(" Error %d load profile #%d\n", e, HP.Option.numProf); // Загрузка текущего профиля
 		if(HP.Option.ver <= 133) {
 			HP.save();
 		}
+		if(TempAlarm_size == 0) {					// Если настройки ТН пустые, то заполняем лимиты температур
+			set_TempAlarmMax(TCOMP, 90);
+			set_TempAlarmMax(TBOILER, 85);
+		} else {
+			for(uint8_t i = 0; i < TempAlarm_size; i++) if(TempAlarm[i].num >= TNUMBER) TempAlarm_remove(i);
+		}
 	}
 	// обновить хеш для пользователей
-	HP.set_hashUser();
-	HP.set_hashAdmin();
+	WebSec_user.hash = WebSec_admin.hash = NULL;
+	calc_WebSec_hash(&WebSec_user, (char*)NAME_USER, HP.get_passUser(), Socket[0].outBuf);
+	calc_WebSec_hash(&WebSec_admin, (char*)NAME_ADMIN, HP.get_passAdmin(), Socket[0].outBuf);
+#ifdef HTTP_MAP_Server
+	journal.jprintf(" Microart Malina server: %s", HTTP_MAP_Server);
+ #ifdef HTTP_MAP_Server_Login
+	WebSec_Microart.hash = NULL;
+	calc_WebSec_hash(&WebSec_Microart, (char*)HTTP_MAP_Server_Login, HP.Option.Microart_pass, Socket[0].outBuf);
+ #endif
+#endif
 
 	// 7. Инициализация СД карты и запоминание результата 3 попытки
 #ifndef NO_SD_CARD
@@ -499,6 +532,7 @@ x_I2C_init_std_message:
 
 	// 10. Сетевые настройки
 	journal.jprintf("8. Setting Network . . .\n");
+
 	if(initW5200(true)) {   // Инициализация сети с выводом инфы в консоль
 		W5100.getMACAddress((uint8_t *)Socket[0].outBuf);
 		journal.jprintf(" MAC: %s\n", MAC2String((uint8_t *)Socket[0].outBuf));
@@ -526,6 +560,16 @@ x_I2C_init_std_message:
 	if(HP.get_fSD()) {
 		journal.jprintf("writing on SD card\n");
 		Stats.Init();             // Инициализовать статистику
+#ifdef WR_LOG_DAYS_POWER_EXCESS
+		if(rtcSAM3X8.unixtime() < 1711904400) { // < Sun Mar 31 2024 20:00:00 GMT+0300
+			for(uint8_t i = 0; i < sizeof(Stats_data) / sizeof(Stats_data[0]); i++) {
+				if(Stats_data[i].object == STATS_OBJ_WattRouter_Excess) {
+					Stats_data[i].value = 0;
+					WR_Power_Excess = 0;
+				}
+			}
+		}
+#endif
 	} else journal.jprintf("not available\n");
 
 	int8_t _profile = HP.Schdlr.calc_active_profile();
@@ -545,6 +589,15 @@ x_I2C_init_std_message:
 	} else {
 		journal.jprintf(" Disabled\n");
 	}
+//	char enstr1[] = "...";
+//	myNextion.Encode_UTF8_to_ISO8859_5((char*)Socket[0].inBuf, enstr1, 100);
+//	journal.jprintf("%s=", enstr1);
+//	for(uint8_t i = 0; i < strlen((char*)Socket[0].inBuf); i++) journal.jprintf("\\x%02X", Socket[0].inBuf[i]);
+//	char enstr2[] = "...";
+//	journal.jprintf("\n%s=", enstr2);
+//	myNextion.Encode_UTF8_to_ISO8859_5((char*)Socket[0].inBuf, enstr2, 100);
+//	for(uint8_t i = 0; i < strlen((char*)Socket[0].inBuf); i++) journal.jprintf("\\x%02X", Socket[0].inBuf[i]);
+//	journal.jprintf("\n");
 #else
 	journal.jprintf("14. Nextion display is absent in config\n");
 #endif
@@ -580,6 +633,10 @@ x_I2C_init_std_message:
 	// ПРИОРИТЕТ 2 высокий - это управление ТН управление ЭРВ, сервис
 	if(xTaskCreate(vServiceHP, "ServiceHP", STACK_vUpdateCommand, NULL, 2, &HP.xHandleSericeHP)==errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY) set_Error(ERR_MEM_FREERTOS,(char*)nameFREERTOS);
 	HP.mRTOS=HP.mRTOS+64+4*STACK_vUpdateCommand;// 200, до обрезки стеков было 300
+#ifdef LCD2004
+	if(xTaskCreate(vKeysLCD, "KeysLCD", 90, NULL, 2, &HP.xHandleKeysLCD) == errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY) set_Error(ERR_MEM_FREERTOS,(char*)nameFREERTOS);
+	HP.mRTOS = HP.mRTOS+64+4* 90;
+#endif
 
 	vSemaphoreCreateBinary(HP.xCommandSemaphore);                       // Создание семафора
 	if (HP.xCommandSemaphore==NULL) set_Error(ERR_MEM_FREERTOS,(char*)nameFREERTOS);
@@ -635,14 +692,14 @@ x_I2C_init_std_message:
 
 	//journal.jprintf("16. Send a notification . . .\n");
 	//HP.message.setMessage(pMESSAGE_RESET,(char*)"Контроллер теплового насоса был сброшен",0);    // сформировать уведомление о сбросе контролла
-	journal.jprintf("17. Information:\n");
+	journal.jprintf("16. Information:\n");
 	freeRamShow();
 	HP.startRAM=freeRam()-HP.mRTOS;   // оценка свободной памяти до пуска шедулера, поправка на 1054 байта
 	journal.jprintf("FREE MEMORY %d bytes\n",HP.startRAM);
 	journal.jprintf("Temperature DS2331: %.2d\n",getTemp_RtcI2C());
 	if(Is_otg_vbus_high()) journal.jprintf("USB connected\n");
 	//HP.Stat.generate_TestData(STAT_POINT); // Сгенерировать статистику STAT_POINT точек только тестирование
-	journal.jprintf("Start FreeRTOS scheduler :-))\n");
+	journal.jprintf("Start FreeRTOS\n");
 	journal.jprintf("READY ----------------------\n");
 	eepromI2C.use_RTOS_delay = 1;       //vad711
 	//
@@ -702,11 +759,13 @@ extern "C" void vApplicationIdleHook(void)  // FreeRTOS expects C linkage
 void vWeb0(void *)
 { //const char *pcTaskName = "Web server is running\r\n";
 	static unsigned long timeResetW5200 = 0;
-	static unsigned long thisTime, FreqTime;
+	static unsigned long thisTime;
 	static unsigned long resW5200 = 0;
 	static unsigned long iniW5200 = 0;
 	static unsigned long pingt = 0;
+#ifdef HTTP_LowConsumeRequest
 	static uint16_t RepeatLowConsumeRequest = 0;
+#endif
 	static boolean network_last_link = true;
 #ifdef MQTT
 	static unsigned long narmont=0;
@@ -715,7 +774,7 @@ void vWeb0(void *)
 #ifdef WEATHER_FORECAST
 	static uint8_t WF_Day = 0;
 #endif
-#ifdef HTTP_MAP_RELAY_MAX
+#if defined(HTTP_MAP_RELAY_MAX) && defined(HTTP_MAP_Server)
 	static uint32_t daily_http_time = 0;
 #endif
 #ifdef WATTROUTER
@@ -724,13 +783,21 @@ void vWeb0(void *)
 	for(uint8_t i = 0; i < WR_NumLoads; i++) {
 		if(WR_Load_pins[i] > 0) pinMode(WR_Load_pins[i], OUTPUT);
 	}
-#ifdef PIN_WR_Boiler_Substitution
+ #ifdef PIN_WR_Boiler_Substitution
 	pinMode(PIN_WR_Boiler_Substitution, OUTPUT);
+ #endif
+#ifdef WR_CHECK_Vbat_INSTEAD_OF_MPPT_SIGN
+	if(WR_Read_MAP() == -32768) journal.jprintf("WR: Error read Ubuf\n");
+	journal.jprintf("WattRouter started, Ubuf=%.1d\n", WR_MAP_Ubuf);
+#else
+	journal.jprintf("WattRouter started\n");
 #endif
-	journal.jprintf("WattRouter running\n");
 #endif
 
-	HP.timeNTP = thisTime = FreqTime = xTaskGetTickCount();        // В первый момент не обновляем
+	HP.timeNTP = thisTime = xTaskGetTickCount();        // В первый момент не обновляем
+#ifndef WR_PowerMeter_Modbus
+	Web0_FreqTime = thisTime;
+#endif
 	for(;;)
 	{
 		#define WEB_SERVER_MAIN_TASK() {\
@@ -743,15 +810,20 @@ void vWeb0(void *)
 
 		// СЕРВИС: Этот поток работает на любых настройках, по этому сюда ставим работу с сетью
 		boolean active = true;   // ФЛАГ Одно дополнительное действие за один цикл - распределяем нагрузку, если действие проделано то active = false и новый цикл
-		if(xTaskGetTickCount() - FreqTime > WEB0_FREQUENT_JOB_PERIOD) {
-			FreqTime = xTaskGetTickCount();
+#ifdef WR_PowerMeter_Modbus		// Синхронизируемся с чтением счетчика - сразу после
+		if(WR_PowerMeter_New) {
+			WR_PowerMeter_New = false;
+#else
+		if(xTaskGetTickCount() - Web0_FreqTime > WEB0_FREQUENT_JOB_PERIOD) {
+			Web0_FreqTime = xTaskGetTickCount();
+#endif
 			active = HP.message.sendMessage();   // Отработать отсылку сообщений (внутри скрыта задержка после включения)
 #ifdef HTTP_LowConsumeRequest
 			if(active) {
 				if(GETBIT(HP.Option.flags, fBackupPower) != Request_LowConsume || (RepeatLowConsumeRequest && --RepeatLowConsumeRequest == 0)) {
 					strcpy(Socket[MAIN_WEB_TASK].outBuf, HTTP_LowConsumeRequest);
 					_itoa(GETBIT(HP.Option.flags, fBackupPower), Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_LowConsumeRequest)-1);
-					int err = Send_HTTP_Request(HTTP_LowConsumeServer, Socket[MAIN_WEB_TASK].outBuf, false);
+					int err = Send_HTTP_Request(HTTP_LowConsumeServer, WebSec_Microart.hash, Socket[MAIN_WEB_TASK].outBuf, false);
 					if(err != -2000000000) {
 						if(err > -2000000000) Request_LowConsume = GETBIT(HP.Option.flags, fBackupPower);
 						else RepeatLowConsumeRequest = (uint16_t)(HTTP_REQUEST_ERR_REPEAT * 1000 / WEB0_OTHER_JOB_PERIOD + 1);
@@ -772,8 +844,76 @@ void vWeb0(void *)
 #ifdef PWM_CALC_POWER_ARRAY
 					if(GETBIT(PWM_CalcFlags, PWM_fCalcNow)) break;
 #endif
-					boolean nopwr = (GETBIT(HP.Option.flags, fBackupPower) || HP.NO_Power) && GETBIT(WR.Flags, WR_fActive); // Выключить все
-					if(nopwr) WR_Refresh |= WR_Loads;
+					uint8_t nopwr = GETBIT(WR.Flags, WR_fActive) && (GETBIT(HP.Option.flags, fBackupPower) || HP.NO_Power
+#ifdef WR_PowerMeter_Modbus
+									|| WR_Error_Read_PowerMeter > WR_Error_Read_PowerMeter_Max
+#endif
+									 );
+#ifdef WR_NEXTION_FULL_SUN
+					int8_t mppt = -1;
+					if(GETBIT(WR_WorkFlags, WR_fWF_Read_MPPT) || WR_LastSunPowerOutCnt == 0 || nopwr) {
+						mppt = WR_Check_MPPT();				// Чтение солнечного контроллера
+						SETBIT0(WR_WorkFlags, WR_fWF_Read_MPPT);
+						WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+					}
+#endif
+					// Выключить все
+					if(nopwr) {
+						WR_Refresh |= WR_Loads;
+						// При отсутствии питания мониторим напряжение на АКБ (не должно быть ниже буферного - дельта)
+						int16_t Vd;
+#if defined(HTTP_MAP_Read_MAP) && defined(WR_NOPWR_READ_MAP_INSTEAD_OF_MPPT)
+						active = false;
+						Vd = WR_Read_MAP();
+#else
+						if(WR_MAP_Ubat) Vd = WR_MAP_Ubuf - WR_MAP_Ubat; else Vd = -32768;
+#endif //HTTP_MAP_Read_MAP
+						if(Vd != -32768) {
+							if(Vd <= WR.DeltaUbatmin) { // Можно нагружать
+#ifdef WR_Load_pins_Boiler_INDEX
+								if(HP.sTemp[TBOILER].get_Temp() <= HP.Prof.Boiler.WR_Target && GETBIT(WR_Loads, WR_Load_pins_Boiler_INDEX)) { // Нужно греть бойлер
+									if(Vd <= 0) { // Можно увеличивать нагрузку
+										if(WR_LoadRun[WR_Load_pins_Boiler_INDEX] > 0 || HP.sTemp[TBOILER].get_Temp() <= HP.Prof.Boiler.WR_Target - WR_Boiler_Hysteresis) {
+											if(GETBIT(WR.PWM_Loads, WR_Load_pins_Boiler_INDEX)) WR_Change_Load_PWM(WR_Load_pins_Boiler_INDEX, WR.LoadAdd);
+											else WR_Switch_Load(WR_Load_pins_Boiler_INDEX, 1);
+											Vd = WR_NO_POWER_WORK_DELTA_Uacc - 1; // Выключить остальные нагрузки
+										}
+										goto xNOPWR_OtherLoad;
+									} else if(Vd > WR_NO_POWER_WORK_DELTA_Uacc) { // Уменьшаем или выключаем
+										if(GETBIT(WR.PWM_Loads, WR_Load_pins_Boiler_INDEX)) WR_Change_Load_PWM(WR_Load_pins_Boiler_INDEX, -WR.LoadAdd);
+									}
+								} else { // Другая нагрузка
+									if(WR_LoadRun[WR_Load_pins_Boiler_INDEX] > 0) {
+										if(GETBIT(WR.PWM_Loads, WR_Load_pins_Boiler_INDEX)) WR_Change_Load_PWM(WR_Load_pins_Boiler_INDEX, -32768);
+										else WR_Switch_Load(WR_Load_pins_Boiler_INDEX, 0);
+									}
+#else
+								{
+#endif
+xNOPWR_OtherLoad:					uint32_t t = rtcSAM3X8.unixtime();
+									for(uint8_t i = 0; i < WR_NumLoads; i++) { // Управляем еще одной нагрузкой
+										if(i == WR_Load_pins_Boiler_INDEX || !GETBIT(WR_Loads, i)) continue;
+										if(Vd <= 0) { // Можно увеличивать нагрузку
+											if(WR_LoadRun[i] < WR.LoadPower[i]) {
+												if(GETBIT(WR.PWM_Loads, i)) {
+													WR_Change_Load_PWM(i, WR.LoadAdd);
+												} else if(Vd < 0) { // +0.1V на АКБ для реле
+													if(WR_SwitchTime[i] && t - WR_SwitchTime[i] <= WR.TurnOnPause) continue;
+													WR_Switch_Load(i, 1);
+												}
+											}
+										} else if(Vd > WR_NO_POWER_WORK_DELTA_Uacc) { // Уменьшаем или выключаем
+											if(WR_LoadRun[i] > 0) {
+												if(GETBIT(WR.PWM_Loads, i)) WR_Change_Load_PWM(i, -WR.LoadAdd); else WR_Switch_Load(i, 0);
+											}
+										}
+										break;
+									}
+								}
+								break; // больше ни чего не делаем
+							} // отключаем нагрузку
+						}
+					}
 					if(WR_Refresh || WR.PWM_FullPowerTime) {
 						for(uint8_t i = 0; i < WR_NumLoads; i++) {
 							//if(!GETBIT(WR_Loads, i)) continue;
@@ -795,15 +935,15 @@ void vWeb0(void *)
 								}
 							}
 						}
-						WR_Refresh = false;
+						WR_Refresh = 0;
 					}
-					if(!active || !GETBIT(WR.Flags, WR_fActive)) break;
 #ifdef WR_Load_pins_Boiler_INDEX
 					if(GETBIT(WR_Loads, WR_Load_pins_Boiler_INDEX) && !HP.dRelay[RBOILER].get_Relay()) {
 #ifdef WR_Boiler_Substitution_INDEX
 						if(digitalReadDirect(PIN_WR_Boiler_Substitution)) {
 							if(WR_LoadRun[WR_Boiler_Substitution_INDEX] == 0 && HP.sTemp[TBOILER].get_Temp() <= HP.Prof.Boiler.WR_Target - WR_Boiler_Hysteresis) {
 								digitalWriteDirect(PIN_WR_Boiler_Substitution, 0); // Переключаемся на бойлер
+								if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf_time("WR: SW->Boiler\n");
 							}
 						} else
 #endif
@@ -811,7 +951,7 @@ void vWeb0(void *)
 							int16_t curr = WR_LoadRun[WR_Load_pins_Boiler_INDEX];
 							if(curr > 0) {
 								if(WR_TestLoadStatus) {
-									if(HP.sTemp[TBOILER].get_Temp() > SALMONELLA_TEMP) { // Перегрели
+									if(HP.sTemp[TBOILER].get_Temp() > WR_BOILER_MAX_TEMP) { // Перегрели
 										if(GETBIT(WR.PWM_Loads, WR_Load_pins_Boiler_INDEX)) WR_Change_Load_PWM(WR_Load_pins_Boiler_INDEX, -32768);
 										else WR_Switch_Load(WR_Load_pins_Boiler_INDEX, 0);
 									}
@@ -846,20 +986,26 @@ void vWeb0(void *)
 						}
 					}
 #endif
+					if(!active) WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+
 
 #ifdef WR_CurrentSensor_4_20mA
 					HP.sADC[IWR].Read();
-					int pnet = HP.sADC[IWR].get_Value() * HP.dSDM.get_voltage();
+					int32_t pnet = HP.sADC[IWR].get_Value() * HP.dSDM.get_voltage();
 #elif WR_PowerMeter_Modbus
-					int pnet = round_div_int32(WR_PowerMeter_Power, 10);
+					int32_t pnet = WR_PowerMeter_Power; //round_div_int32(WR_PowerMeter_Power, 10);
+					if(pnet == -1) break; // Ошибка
 #else
 					// HTTP power meter
 					active = false;
-					int err = Send_HTTP_Request(HTTP_MAP_Server, HTTP_MAP_Read_MAP, 1);
+					int err = Send_HTTP_Request(HTTP_MAP_Server, WebSec_Microart.hash, HTTP_MAP_Read_MAP, 1);
 					if(err) {
-						if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: HTTP request Error %d\n", err);
+						if(GETBIT(WR.Flags, WR_fLog) && !GETBIT(Logflags, fLog_HTTP_RelayError)) {
+							SETBIT1(Logflags, fLog_HTTP_RelayError);
+							journal.jprintf("WR: HTTP request Error %d\n", err);
+						}
 						break;
-					}
+					} else SETBIT0(Logflags, fLog_HTTP_RelayError);
 					// todo: check "_MODE" >= 3
 					char *fld = strstr(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_JSON_PNET_calc);
 					if(!fld) {
@@ -872,7 +1018,10 @@ void vWeb0(void *)
 					int pnet = atoi(fld);
 #endif
 					//
-					if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf("WR: P=%d\n", pnet);
+					if(!GETBIT(WR.Flags, WR_fActive) || nopwr) break;
+
+					int16_t _MinNetLoad = WR.MinNetLoad;
+					if(WR.MinNetLoadSunDivider) _MinNetLoad += WR_LastSunPowerOut / WR.MinNetLoadSunDivider;
 #ifdef WR_TestAvailablePowerForRelayLoads
 					if(WR_TestLoadStatus) { // Тестирование нагрузки
 						if(++WR_TestLoadStatus > WR_TestAvailablePowerTime) {
@@ -883,52 +1032,98 @@ void vWeb0(void *)
 								uint8_t idx = WR_TestAvailablePowerForRelayLoads;
 #endif
 							WR_Change_Load_PWM(idx, -WR.LoadPower[WR_TestLoadIndex]);
-							if(pnet <= WR.MinNetLoad) {
+							if(pnet <= _MinNetLoad) {
 //								for(uint8_t i = 0; i < 5; i++) { // >1/100 sec
 //									WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
 //								}
 								WR_Switch_Load(WR_TestLoadIndex, 1);
-							} else WR_LastSwitchTime = rtcSAM3X8.unixtime();
+								if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf("WRT: OK\n");
+							} else {
+								WR_LastSwitchTime = rtcSAM3X8.unixtime();
+								if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf("WRT: < %d\n", WR.LoadPower[WR_TestLoadIndex]);
+							}
 						}
 						break;
 					} else
 #endif
 					{
-						// Если возможна только релейная нагрузка, то отбрасываем пики и усредняем
-						bool need_average = true;
-						if(pnet > WR.MinNetLoad) {
-							for(int8_t i = 0; i < WR_NumLoads; i++) {
-								if(!GETBIT(WR.PWM_Loads, i) || WR_LoadRun[i] == 0 || !GETBIT(WR_Loads, i)) continue;
-								need_average = false;
-								break;
-							}
-						}
-						if(need_average) {
+						// Если есть нагрузка, то фильтруем
+//						bool need_average;
+//						if(pnet < 0) need_average = false;
+//						else {
+//							need_average = true;
+//							if(pnet > _MinNetLoad) {
+//								for(int8_t i = 0; i < WR_NumLoads; i++) {
+//									if(!GETBIT(WR.PWM_Loads, i) || WR_LoadRun[i] == 0 || !GETBIT(WR_Loads, i)) continue;
+//									need_average = false;
+//									break;
+//								}
+//							}
+//						}
+#ifdef WR_SKIP_EXTREMUM
+//						if(need_average) {
 							if(WR_Pnet != -32768 && /*abs*/(pnet - WR_Pnet) > WR_SKIP_EXTREMUM) {
 								WR_Pnet = -32768;
 								if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf_time("WR: Skip %d\n", pnet);
 								break;
 							}
-						}
-#ifdef WR_PNET_AVERAGE
-						if(WR_Pnet_avg_init) { // first time
-							for(uint8_t i = 0; i < sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]); i++) WR_Pnet_avg[i] = pnet;
-							WR_Pnet_avg_sum = pnet * int32_t(sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]));
-							WR_Pnet_avg_init = false;
-						} else {
-							WR_Pnet_avg_sum = WR_Pnet_avg_sum - WR_Pnet_avg[WR_Pnet_avg_idx] + pnet;
-							WR_Pnet_avg[WR_Pnet_avg_idx] = pnet;
-							if(WR_Pnet_avg_idx < sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]) - 1) WR_Pnet_avg_idx++; else WR_Pnet_avg_idx = 0;
-						}
-						if(need_average) WR_Pnet = WR_Pnet_avg_sum / int32_t(sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]));
-						else
+//						}
 #endif
-							WR_Pnet = pnet;
+
+	#ifdef WR_PNET_MEDIAN
+						if(GETBIT(WR.Flags, WR_fMedianFilter)) {
+							// Медианный фильтр на увеличение
+							static int median1, median2;
+							if(WR_Pnet_avg_init) median1 = median2 = pnet;
+							int median3 = pnet;
+							if(median3 > median2) { // предыдущее меньше
+								if(median1 <= median2 && median1 <= median3) {
+									pnet = median2 <= median3 ? median2 : median3;
+								} else if(median2 <= median1 && median2 <= median3) {
+									pnet = median1 <= median3 ? median1 : median3;
+								} else {
+									pnet = median1 <= median2 ? median1 : median2;
+								}
+							}
+							median1 = median2;
+							median2 = median3;
+						}
+	#endif
+#ifdef WR_PNET_AVERAGE
+						if(GETBIT(WR.Flags, WR_fAverage)) {
+	#if WR_PNET_AVERAGE == 1
+							if(!WR_Pnet_avg_init) pnet = (WR_Pnet_avg + pnet) / 2;
+							WR_Pnet_avg = pnet;
+	#else
+							if(WR_Pnet_avg_init) { // first time
+								for(uint8_t i = 0; i < sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]); i++) WR_Pnet_avg[i] = pnet;
+								WR_Pnet_avg_sum = pnet * int32_t(sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]));
+							} else {
+								WR_Pnet_avg_sum = WR_Pnet_avg_sum - WR_Pnet_avg[WR_Pnet_avg_idx] + pnet;
+								WR_Pnet_avg[WR_Pnet_avg_idx] = pnet;
+								if(WR_Pnet_avg_idx < sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]) - 1) WR_Pnet_avg_idx++; else WR_Pnet_avg_idx = 0;
+							}
+//							if(need_average)
+								pnet = WR_Pnet_avg_sum / int32_t(sizeof(WR_Pnet_avg) / sizeof(WR_Pnet_avg[0]));
+//							else WR_Pnet = pnet;
+	#endif
+						}
+#endif
+						WR_Pnet_avg_init = false;
+					}
+					WR_Pnet = pnet; //need_average ? pnet : median3;
+#ifndef WR_NEXTION_FULL_SUN
+					int8_t mppt = -1;
+#endif
+					if((WR.Flags & ((1<<WR_fLogFull)|(1<<WR_fLog))) == ((1<<WR_fLogFull)|(1<<WR_fLog))) {
+						journal.jprintf("WR: P=%d%c", WR_Pnet, mppt == 0 ? '!' : mppt == 1 ? '+' : mppt == 2 ? '*' : mppt == 3 ? '-': '?');
+						if(WR_Pnet != WR_PowerMeter_Power) journal.jprintf("(%d)", WR_PowerMeter_Power);
+						journal.jprintf(",%.1d\n", WR_MAP_Ubat);
 					}
 					// проверка перегрузки
-					if(WR_Pnet - WR.MinNetLoad > 0) { // Потребление из сети больше - уменьшаем нагрузку
-						pnet = WR_Pnet - WR.MinNetLoad; // / 2;
-						int8_t mppt = -1;
+					if(WR_Pnet > _MinNetLoad) { // Потребление из сети больше - уменьшаем нагрузку
+						pnet = WR_Pnet - _MinNetLoad + WR.MinNetLoadHyst / 2; // / 2;
+						if(pnet <= 0) break;
 						for(int8_t i = WR_NumLoads-1; i >= 0; i--) { // PWM only
 							if(!GETBIT(WR.PWM_Loads, i) || WR_LoadRun[i] == 0 || !GETBIT(WR_Loads, i)) continue;
 #ifdef WR_Load_pins_Boiler_INDEX
@@ -937,8 +1132,9 @@ void vWeb0(void *)
 #ifdef HTTP_MAP_Read_MPPT
 							if(mppt == -1) {
 								active = false;
-								if((mppt = WR_Check_MPPT()) > 1) break;				// Проверка наличия свободного солнца
+								mppt = WR_Check_MPPT();					// Проверка наличия свободного солнца
 							}
+							if(mppt > 1) break;
 #endif
 							int chg = WR_LoadRun[i];
 							if(chg > pnet && chg - pnet > WR_PWM_POWER_MIN) chg = pnet;
@@ -946,7 +1142,7 @@ void vWeb0(void *)
 							pnet -= chg;
 							if(pnet <= 0) break;
 						}
-						if(pnet > 0 && mppt <= 1) {
+						if(pnet > 0 && mppt <= 1) { // not PWM
 							uint8_t reserv = 255;
 							uint32_t t = rtcSAM3X8.unixtime();
 							for(int8_t i = WR_NumLoads-1; i >= 0; i--) {  // Relay only
@@ -973,10 +1169,10 @@ void vWeb0(void *)
 								WR_Switch_Load(reserv, 0);
 							}
 						}
-					} else { // Увеличиваем нагрузку
+					} else if(WR_Pnet <= _MinNetLoad - WR.MinNetLoadHyst || mppt == 3) { // Увеличиваем нагрузку
 #ifdef WR_Load_pins_Boiler_INDEX
 						bool need_heat_boiler =	WR.LoadPower[WR_Load_pins_Boiler_INDEX] - WR_LoadRun[WR_Load_pins_Boiler_INDEX] > 0
-												&& (HP.sTemp[TBOILER].get_Temp() <= HP.Prof.Boiler.WR_Target - HP.Prof.Boiler.dAddHeat) && !HP.dRelay[RBOILER].get_Relay();
+												&& (HP.sTemp[TBOILER].get_Temp() <= HP.Prof.Boiler.WR_Target - WR_Boiler_Hysteresis) && !HP.dRelay[RBOILER].get_Relay();
 						if(need_heat_boiler) {
 							// Переключаемся на нагрев бойлера
 							for(int8_t i = 0; i < WR_NumLoads; i++) {
@@ -1003,49 +1199,79 @@ void vWeb0(void *)
 							if(!need_heat_boiler) break;
 						}
 #endif
-						uint8_t mppt = 255;
 						for(int8_t i = 0; i < WR_NumLoads; i++) {
 							if(WR_LoadRun[i] == WR.LoadPower[i] || !GETBIT(WR_Loads, i)) continue;
 #ifdef WR_Load_pins_Boiler_INDEX
-							if(i == WR_Load_pins_Boiler_INDEX && ((HP.sTemp[TBOILER].get_Temp() > HP.Prof.Boiler.WR_Target - WR_Boiler_Hysteresis) || HP.dRelay[RBOILER].get_Relay())) continue;
+							if(i == WR_Load_pins_Boiler_INDEX) {
+								int16_t d = HP.Prof.Boiler.WR_Target - HP.sTemp[TBOILER].get_Temp();
+								if(d < 0 || HP.dRelay[RBOILER].get_Relay()) continue;
+#ifdef WR_Boiler_Substitution_INDEX
+								if(digitalReadDirect(PIN_WR_Boiler_Substitution) && d <= WR_Boiler_Hysteresis) continue; // Если работает замена бойлера и t меньше гистерезиса - пропускаем бойлер
 #endif
+
+							}
+#endif
+							int8_t availidx = 0;
 							if(!GETBIT(WR.PWM_Loads, i)) {
 								uint32_t t = rtcSAM3X8.unixtime();
 								if(WR_LastSwitchTime && t - WR_LastSwitchTime <= WR.NextSwitchPause) continue;
 								if(WR_SwitchTime[i] && t - WR_SwitchTime[i] <= WR.TurnOnPause) continue;
+								// Расчет мощности, которую можно взять от менее приритетных нагрузок
+								for(int8_t ii = i + 1; ii < WR_NumLoads; ii++) {
+									if(WR_LoadRun[ii] >= WR.LoadPower[i]) {
+										availidx = ii;
+										break;
+									}
+								}
 							}
 #ifdef HTTP_MAP_Read_MPPT
-							if(mppt == 255) {
+							if(mppt == -1 && pnet > 0) {
 								active = false;
-								if((mppt = WR_Check_MPPT()) == 2) break;	// Проверка наличия свободного солнца
+								mppt = WR_Check_MPPT();
 							}
+							if(mppt == 2 || (mppt == 0 && pnet == 0)) break;	// Проверка наличия свободного солнца
+							// Отключено, на КЭС можно рассчитывать только в плане избытка
+							//if(mppt == 1 && availidx == 0) break;
 #endif
 							if(GETBIT(WR.PWM_Loads, i)) {
 #ifdef WR_Boiler_Substitution_INDEX
 								if(i == WR_Boiler_Substitution_INDEX && WR_LoadRun[WR_Load_pins_Boiler_INDEX] != 0) continue;
 #endif
 								int16_t chg;
-								if(mppt < 3) { 								// Добавляем помаленьку, когда MPPT говорит, что нет энергии
+								if(mppt == 0 || mppt == 2) { // Добавляем помаленьку, когда ошибка или пауза у MPPT
 									if(skip_next_small_increase) break;
-									chg = WR.MinNetLoad - pnet;
-									if(chg < WR_PWM_POWER_MIN) break;
+									if(pnet > 0) {
+										chg = _MinNetLoad - pnet;
+										if(chg < WR_PWM_POWER_MIN) break;
+									} else chg = pnet + WR_MIN_LOAD_POWER;
 									skip_next_small_increase = 2;
 								} else chg = WR.LoadAdd;
 								WR_Change_Load_PWM(i, WR_Adjust_PWM_delta(i, chg));
 								break;
 							} else {
-								if(mppt < 3) continue;
+								if(/*mppt <= 1 &&*/ availidx) { // на КЭС можно рассчитывать только в плане избытка
+									if(GETBIT(WR.PWM_Loads, availidx)) {
+										WR_Change_Load_PWM(availidx, -WR.LoadPower[i]);
+									} else {
+										if(WR_SwitchTime[i] && rtcSAM3X8.unixtime() - WR_SwitchTime[i] <= WR.TurnOnPause) continue;
+										WR_Switch_Load(i, 0);
+									}
+								// на КЭС можно рассчитывать только в плане избытка
+								//} else {
+								//	if(mppt < 3 && pnet > 0) continue;
+								//	availidx = 0;
+								}
 #ifdef WR_TestAvailablePowerForRelayLoads
 	#if defined(WR_Load_pins_Boiler_INDEX) && WR_TestAvailablePowerForRelayLoads == WR_Load_pins_Boiler_INDEX
 		#ifdef WR_Boiler_Substitution_INDEX
 								uint8_t idx = digitalReadDirect(PIN_WR_Boiler_Substitution) ? WR_Boiler_Substitution_INDEX : WR_Load_pins_Boiler_INDEX;
-								if(GETBIT(WR_Loads, idx) && (idx != WR_Load_pins_Boiler_INDEX || (HP.sTemp[TBOILER].get_Temp() < SALMONELLA_TEMP && !HP.dRelay[RBOILER].get_Relay())) && WR_LoadRun[idx] < WR.LoadPower[idx]) {
+								if(availidx == 0 && GETBIT(WR_Loads, idx) && (idx != WR_Load_pins_Boiler_INDEX || (HP.sTemp[TBOILER].get_Temp() < WR_BOILER_MAX_TEMP && !HP.dRelay[RBOILER].get_Relay())) && WR_LoadRun[idx] < WR.LoadPower[idx]) {
 		#else
-								if(GETBIT(WR_Loads, WR_Load_pins_Boiler_INDEX) && (HP.sTemp[TBOILER].get_Temp() < SALMONELLA_TEMP && !HP.dRelay[RBOILER].get_Relay())) && WR_LoadRun[WR_Load_pins_Boiler_INDEX] < WR.LoadPower[WR_Load_pins_Boiler_INDEX]) {
+								if(availidx == 0 && GETBIT(WR_Loads, WR_Load_pins_Boiler_INDEX) && (HP.sTemp[TBOILER].get_Temp() < WR_BOILER_MAX_TEMP && !HP.dRelay[RBOILER].get_Relay())) && WR_LoadRun[WR_Load_pins_Boiler_INDEX] < WR.LoadPower[WR_Load_pins_Boiler_INDEX]) {
 		#endif
 	#else
 								uint8_t idx = WR_TestAvailablePowerForRelayLoads;
-								if(GETBIT(WR_Loads, WR_TestAvailablePowerForRelayLoads) && WR_LoadRun[WR_TestAvailablePowerForRelayLoads] < WR.LoadPower[WR_TestAvailablePowerForRelayLoads]) {
+								if(availidx == 0 && GETBIT(WR_Loads, WR_TestAvailablePowerForRelayLoads) && WR_LoadRun[WR_TestAvailablePowerForRelayLoads] < WR.LoadPower[WR_TestAvailablePowerForRelayLoads]) {
 	#endif
 									WR_TestLoadIndex = i;
 									WR_TestLoadStatus = 1;
@@ -1061,8 +1287,39 @@ void vWeb0(void *)
 					}
 					break;
 				}
+			} else { // NOT (GETBIT(WR.Flags, WR_fActive) || WR.PWM_FullPowerTime || WR_Refresh))
+				WR_Pnet = WR_PowerMeter_Power;
+				if(GETBIT(WR_WorkFlags, WR_fWF_Read_MPPT)) {
+					WR_Check_MPPT();				// Чтение солнечного контроллера
+					SETBIT0(WR_WorkFlags, WR_fWF_Read_MPPT);
+					WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+				} else WR_LastSunSign = -1;
+				if((WR.Flags & ((1<<WR_fLogFull)|(1<<WR_fLog))) == ((1<<WR_fLogFull)|(1<<WR_fLog))) {
+					journal.jprintf("WR: P=%d%c", WR_Pnet, WR_LastSunSign == 0 ? '!' : WR_LastSunSign == 1 ? '+' : WR_LastSunSign == 2 ? '*' : WR_LastSunSign == 3 ? '-': '?');
+					if(WR_Pnet != WR_PowerMeter_Power) journal.jprintf("(%d)", WR_PowerMeter_Power);
+					journal.jprintf(",%.1d(%.1d)\n", WR_MAP_Ubat, WR_MAP_Ubuf);
+				}
 			}
+	#ifdef RSOLINV
+			if(HP.dRelay[RSOLINV].get_Relay()) { 	// Relay is ON
+#ifdef WR_INVERTOR2_SUN_OFF_WHEN_NO_WORK
+				if(HP.is_compressor_on()) WR_Invertor2_off_cnt = 0;
 #endif
+				if(WR_Invertor2_off_cnt > WR_INVERTOR2_SUN_OFF_TIMER || GETBIT(WR_WorkFlags, WR_fWF_Charging_BAT)) {
+					HP.dRelay[RSOLINV].set_Relay(fR_StatusAllOff);
+					WR_Invertor2_off_cnt = 0;
+				} else if(WR_LastSunPowerOut <= 10 || rtcSAM3X8.get_hours() >= WR_INVERTOR2_SUN_OFF_HOUR) WR_Invertor2_off_cnt++;
+				else if(WR_Invertor2_off_cnt) WR_Invertor2_off_cnt--;
+			} else { 								// Relay is OFF
+				if(WR_LastSunPowerOut > WR_INVERTOR2_SUN_PWR_ON && WR_Pnet > 0 && WR_LastSunPowerOut > WR_Pnet && !GETBIT(WR_WorkFlags, WR_fWF_Charging_BAT)) {
+					if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: Sun=%d, Net=%d\n", WR_LastSunPowerOut, WR_Pnet);
+					HP.dRelay[RSOLINV].set_ON();
+					WR_Invertor2_off_cnt = 0;
+				}
+			}
+	#endif
+			//
+#endif // WATTROUTER
 		}
 		if(xTaskGetTickCount() - thisTime > WEB0_OTHER_JOB_PERIOD)
 		{
@@ -1071,7 +1328,7 @@ void vWeb0(void *)
 				active = true;
 			}
 			thisTime = xTaskGetTickCount();                                      // Запомнить тики
-			if(active) active = HP.message.dnsUpdate();                                     // Обновить адреса через dns если надо, dnsUpdate() возвращает true если обновления не было
+			if(active) active = HP.message.dnsUpdate();                          // Обновить адреса через dns если надо, dnsUpdate() возвращает true если обновления не было
 #ifdef MQTT
 			if(active) active=HP.clMQTT.dnsUpdate();                             // Обновить адреса через dns если надо для MQTT если обновления не было то возвращает true
 #endif
@@ -1132,7 +1389,7 @@ void vWeb0(void *)
 			{
 				WEB_STORE_DEBUG_INFO(6);
 				HP.timeNTP = thisTime;
-				HP.updateDateTime(set_time_NTP());                                                 // Обновить время
+				if(HP.get_UpdateByHTTP()) set_time_HTTP(true); else set_time_NTP(true);
 				active = false;
 			}
 			// 6. ping сервера если это необходимо
@@ -1167,41 +1424,96 @@ void vWeb0(void *)
 #ifdef WEATHER_FORECAST
 			if(active && rtcSAM3X8.get_days() != WF_Day) {
 				WF_BoilerTargetPercent = 100;
-				if(rtcSAM3X8.get_hours() == WR.WF_Hour && strlen(HP.Option.WF_ReqServer)) {
+				if(rtcSAM3X8.get_hours() == WR.WF_Time / 10 && rtcSAM3X8.get_minutes() >= (WR.WF_Time % 10) * 10 && strlen(HP.Option.WF_ReqServer)) {
 					if(!active) WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
-					int err = Send_HTTP_Request(HP.Option.WF_ReqServer, HP.Option.WF_ReqText, 4);
-					if(err != 0) {
-						if((HP.get_NetworkFlags() & (1<<fWebFullLog)) || rtcSAM3X8.get_minutes() == 59) journal.jprintf_time("WF: Request Error %d\n", err);
-					} else if(WF_ProcessForecast(Socket[MAIN_WEB_TASK].outBuf) == OK) {
-						WF_Day = rtcSAM3X8.get_days();
+					int err = Send_HTTP_Request(HP.Option.WF_ReqServer, NULL, HP.Option.WF_ReqText, 4);
+					if(err == OK) err = WF_ProcessForecast(Socket[MAIN_WEB_TASK].outBuf);
+					if(err == OK) WF_Day = rtcSAM3X8.get_days();
+					else {
+						if(rtcSAM3X8.get_minutes() == 59 && rtcSAM3X8.get_seconds() >= 59 - uint8_t(WEB0_OTHER_JOB_PERIOD / 1000)) {
+							journal.jprintf_time("WF: Request Error %d\n", err);
+							HP.message.setMessage(pMESSAGE_ERROR,(char*)"Ошибка получения прогноза погоды", err);
+						}
 					}
 					active = false;
 				}
 			}
 #endif
-#ifdef HTTP_MAP_RELAY_MAX
+#if defined(HTTP_MAP_RELAY_MAX) && defined(HTTP_MAP_Server)
 			if(HP.IsWorkingNow()) {
+				if(!active) {
+					WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+					active = true;
+				}
 				uint32_t t = rtcSAM3X8.unixtime();
 				if(t - daily_http_time > 600UL) { // дискретность 10 минут
 					daily_http_time = t;
 					daily_http_time -= daily_http_time % 600;
-					uint32_t tt = rtcSAM3X8.get_hours() * 100 + rtcSAM3X8.get_minutes();
+					if(DailySwitch_on & DailySwitch_on_MASK_OFF) { // Выкл. после смены профиля
+						for(uint8_t i = 1; i < 8; i++) {
+							if(DailySwitch_on & (1<<(i + 24 - 1))) {
+								strcpy(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_RELAY_SW_1);
+								_itoa(i, Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1);
+								strcat(Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1, HTTP_MAP_RELAY_SW_2);
+								_itoa(0, Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1 + sizeof(HTTP_MAP_RELAY_SW_2)-1); // OFF
+								if(Send_HTTP_Request(HTTP_MAP_Server, WebSec_Microart.hash, Socket[MAIN_WEB_TASK].outBuf, 3) == 1) { // Ok?
+									DailySwitch_on ^= (1<<(i + 24 - 1));
+									SETBIT0(Logflags, fLog_HTTP_RelayError);
+									//journal.jprintf_time("Relay HTTP-%d: %s\n", rel, ds ? "ON" : "OFF");
+								} else {
+									if((HP.get_NetworkFlags() & ((1<<fWebLogError) | (1<<fWebFullLog))) && !GETBIT(Logflags, fLog_HTTP_RelayError)) {
+										SETBIT1(Logflags, fLog_HTTP_RelayError);
+										journal.jprintf(". Fail set HTTP-%d relay!\n", i);
+									}
+								}
+								WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+							}
+						}
+					}
+					uint32_t hhmm = rtcSAM3X8.get_hours() * 100 + rtcSAM3X8.get_minutes();
+					typeof(DailySwitch_on) _dson = 0;
 					for(uint8_t i = 0; i < DAILY_SWITCH_MAX; i++) {
 						if(HP.Prof.DailySwitch[i].Device == 0) break;
 						if(HP.Prof.DailySwitch[i].Device < RNUMBER) continue;
-						if(!active) WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
-						uint32_t st = HP.Prof.DailySwitch[i].TimeOn * 10;
-						uint32_t end = HP.Prof.DailySwitch[i].TimeOff * 10;
-						strcpy(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_RELAY_SW_1);
-						_itoa(HP.Prof.DailySwitch[i].Device - RNUMBER+1, Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1);
-						strcat(Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1, HTTP_MAP_RELAY_SW_2);
-						_itoa(((end >= st && tt >= st && tt <= end) || (end < st && (tt >= st || tt <= end))) && !HP.NO_Power && !GETBIT(HP.Option.flags, fBackupPower),
-								Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1 + sizeof(HTTP_MAP_RELAY_SW_2)-1);
-						if(Send_HTTP_Request(HTTP_MAP_Server, Socket[MAIN_WEB_TASK].outBuf, 3) == 1) { // Ok?
-						} else {
-							if(HP.get_NetworkFlags() & (1<<fWebLogError)) journal.jprintf("Error set relay HTTP-%d relay!\n", HP.Prof.DailySwitch[i].Device - RNUMBER+1);
+						int8_t ds = HP.NO_Power || GETBIT(HP.Option.flags, fBackupPower) ? 0 : HP.Prof.check_DailySwitch(i, hhmm);
+						_dson |= (ds < 0 ? GETBIT(DailySwitch_on, i) : ds)<<i;
+					}
+					for(uint8_t i = 0; i < DAILY_SWITCH_MAX; i++) {
+						if(HP.Prof.DailySwitch[i].Device == 0) break;
+						if(HP.Prof.DailySwitch[i].Device < RNUMBER) continue;
+						if(GETBIT((_dson ^ DailySwitch_on), i)) {
+							if(!GETBIT(_dson, i)) { // off
+								uint8_t j = i + 1;
+								for(; j < DAILY_SWITCH_MAX; j++) {
+									if(HP.Prof.DailySwitch[i].Device == HP.Prof.DailySwitch[j].Device && GETBIT(_dson, j)) break;
+								}
+								if(j < DAILY_SWITCH_MAX) { // Еще есть тоже реле или реле уже включено
+									SETBIT0(DailySwitch_on, i);
+									continue;
+								}
+							}
+							strcpy(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_RELAY_SW_1);
+							uint32_t rel = HP.Prof.DailySwitch[i].Device - RNUMBER + 1;
+							_itoa(rel, Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1);
+							strcat(Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1, HTTP_MAP_RELAY_SW_2);
+							_itoa(GETBIT(_dson, i), Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1 + sizeof(HTTP_MAP_RELAY_SW_2)-1);
+							if(Send_HTTP_Request(HTTP_MAP_Server, WebSec_Microart.hash, Socket[MAIN_WEB_TASK].outBuf, 3) == 1) { // Ok?
+								DailySwitch_on = (DailySwitch_on & ~(1<<i)) | (_dson & (1<<i));
+								SETBIT0(Logflags, fLog_HTTP_RelayError);
+								//journal.jprintf_time("Relay HTTP-%d: %s\n", rel, ds ? "ON" : "OFF");
+							} else {
+								if((HP.get_NetworkFlags() & ((1<<fWebLogError) | (1<<fWebFullLog))) && !GETBIT(Logflags, fLog_HTTP_RelayError)) {
+									SETBIT1(Logflags, fLog_HTTP_RelayError);
+									journal.jprintf(". Fail set HTTP-%d relay!\n", rel);
+								}
+							}
+							active = false;
 						}
 					}
+					if(!active) WEB_SERVER_MAIN_TASK();	/////////////////////////////////////// Выполнить задачу веб сервера
+#ifdef WR_CHECK_Vbat_INSTEAD_OF_MPPT_SIGN
+					WR_Read_MAP();
+#endif
 				}
 			}
 #endif
@@ -1254,7 +1566,7 @@ void vReadSensor(void *)
 #endif
 #endif
 	static uint32_t ttime;
-	static uint8_t  prtemp = 0;
+	static uint8_t  prtemp;
 	
 	for(;;) {
 		int8_t i;
@@ -1262,10 +1574,11 @@ void vReadSensor(void *)
 		ttime = GetTickCount();
 #ifdef RADIO_SENSORS		
 		radio_timecnt++;
-#endif		
+#endif
+		prtemp = 0;	// Очистка ошибок по шинам
 		if(OW_scan_flags == 0) {
 #ifndef DEMO  // Если не демо
-			prtemp = HP.Prepare_Temp(0);
+			prtemp |= HP.Prepare_Temp(0);
 #ifdef ONEWIRE_DS2482_SECOND
 			prtemp |= HP.Prepare_Temp(1);
 #endif
@@ -1287,19 +1600,30 @@ void vReadSensor(void *)
 #else
 		for(i = 0; i < INUMBER; i++) HP.sInput[i].Read();                // Прочитать данные сухой контакт
 #endif
-		for(i = 0; i < FNUMBER; i++) HP.sFrequency[i].Read();			// Получить значения датчиков потока
-
+		//_delay(1);
 #ifdef USE_ELECTROMETER_SDM   // Опрос состояния счетчика
-		HP.dSDM.get_readState(0); // Основная группа регистров
+#if (SDM_READ_PERIOD > 0)
+			if((HP.dSDM.get_present()) && (GetTickCount() - readSDM > SDM_READ_PERIOD)) {
+				readSDM=GetTickCount();
+				HP.dSDM.get_readState(2);     // Последняя группа регистров ТОК
+			}
 #endif
-//#ifdef WR_PowerMeter_Modbus
-//		if(GETBIT(WR.Flags, WR_fActive)) {
-//			if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf("WR: #%d\n", GetTickCount() - ttime);
-//			i = Modbus.readInputRegisters32(WR_PowerMeter_Modbus, WR_PowerMeter_ModbusReg, (uint32_t*)&WR_PowerMeter_Power);
-//			if(i != OK && GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: Modbus read err %d\n", i);
-//		}
-//#endif
+#endif
+#if defined(WR_PowerMeter_Modbus)
+		if(GETBIT(WR.Flags, WR_fActive) || GETBIT(WR_WorkFlags, WR_fWF_Read_MPPT)) {
+			vReadSensor_delay1ms(WEB0_FREQUENT_JOB_PERIOD / 2 - (GetTickCount() - ttime));	// через (WEB0_FREQUENT_JOB_PERIOD / 2) после начала очередного цикла чтения
+			if(GETBIT(WR.Flags, WR_fLogFull) && GETBIT(HP.get_NetworkFlags(), fWebFullLog)) journal.jprintf("WR+: %d\n", GetTickCount() - ttime);
+		 	WR_ReadPowerMeter();
+		}
+#else
+#if defined(PWM_CALC_POWER_ARRAY) && defined(WR_CurrentSensor_4_20mA)
+		WR_Calc_Power_Array_NewMeter(0);
+#endif
+#endif // defined(WR_PowerMeter_Modbus)
+
 		vReadSensor_delay1ms(cDELAY_DS1820 - (int32_t)(GetTickCount() - ttime)); 	// Ожидать время преобразования
+
+		for(i = 0; i < FNUMBER; i++) HP.sFrequency[i].Read();			// Получить значения датчиков потока
 
 		if(OW_scan_flags == 0) {
 			uint8_t flags = 0;
@@ -1309,6 +1633,19 @@ void vReadSensor(void *)
 				}
 				_delay(1);     												// пауза
 			}
+			// Проверка на предельные температуры
+			for(i = 0; i < TempAlarm_size; i++) {
+				uint8_t num = TempAlarm[i].num;
+				if(HP.sTemp[num].get_setup_flags() & ((1<<fTEMP_HeatTarget)|(1<<fTEMP_HeatFloor))) continue;
+				int16_t T = HP.sTemp[num].get_Temp();
+				if(T < TempAlarm[i].MinTemp * 100) {
+					set_Error(HP.sTemp[num].set_Err(ERR_MINTEMP), HP.sTemp[num].get_name());
+				}
+				if(T > TempAlarm[i].MaxTemp * 100) {
+					set_Error(HP.sTemp[num].set_Err(ERR_MAXTEMP), HP.sTemp[num].get_name());
+				}
+			}
+
 			int32_t temp;
 			if(GETBIT(flags, fTEMP_as_TIN_average)) { // Расчет средних датчиков для TIN
 				temp = 0;
@@ -1323,64 +1660,38 @@ void vReadSensor(void *)
 			} else temp = STARTTEMP;
 			int16_t temp2 = temp;
 			if(GETBIT(flags, fTEMP_as_TIN_min)) { // Выбор минимальной температуры для TIN
-				for(i = 0; i < TNUMBER; i++) {
-					if(GETBIT(HP.Prof.SaveON.bTIN, i) && HP.sTemp[i].get_setup_flag(fTEMP_as_TIN_min) && temp2 > HP.sTemp[i].get_Temp()) temp2 = HP.sTemp[i].get_Temp();
+				if(HP.get_modeHouse() == pCOOL) {
+					if(temp2 == STARTTEMP) temp2 = -STARTTEMP;
+					for(i = 0; i < TNUMBER; i++) {
+						if(GETBIT(HP.Prof.SaveON.bTIN, i) && HP.sTemp[i].get_setup_flag(fTEMP_as_TIN_min) && temp2 < HP.sTemp[i].get_Temp()) temp2 = HP.sTemp[i].get_Temp();
+					}
+					if(temp2 != -STARTTEMP) HP.sTemp[TIN].set_Temp(temp2);
+				} else {
+					for(i = 0; i < TNUMBER; i++) {
+						if(GETBIT(HP.Prof.SaveON.bTIN, i) && HP.sTemp[i].get_setup_flag(fTEMP_as_TIN_min) && temp2 > HP.sTemp[i].get_Temp()) temp2 = HP.sTemp[i].get_Temp();
+					}
+					if(temp2 != STARTTEMP) HP.sTemp[TIN].set_Temp(temp2);
 				}
-			}
-			if(temp2 != STARTTEMP) HP.sTemp[TIN].set_Temp(temp2);
+			} else if(temp2 != STARTTEMP) HP.sTemp[TIN].set_Temp(temp2);
 		}
 
 #ifdef USE_ELECTROMETER_SDM   // Опрос состояния счетчика
-#if (SDM_READ_PERIOD > 0)
-			if((HP.dSDM.get_present()) && (GetTickCount() - readSDM > SDM_READ_PERIOD)) {
-				readSDM=GetTickCount();
-				HP.dSDM.get_readState(2);     // Последняя группа регистров ТОК
-			}
+		HP.dSDM.get_readState(0); // Основная группа регистров
 #endif
-#endif
-
 		HP.calculatePower();  // Расчет мощностей и СОР
 		Stats.Update();
 
-#if defined(WR_PowerMeter_Modbus) //&& TIME_READ_SENSOR > 1500
-		if(GETBIT(WR.Flags, WR_fActive)) {
-//			int32_t tm = TIME_READ_SENSOR - (int32_t)(GetTickCount() - ttime);
-//			if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf("WR: +%d\n", tm);
-//			if(tm > WEB0_FREQUENT_JOB_PERIOD / 2) {
-//				vReadSensor_delay1ms(tm - WEB0_FREQUENT_JOB_PERIOD);     													// 1. Ожидать время нужное для цикла чтения
-				i = Modbus.readInputRegisters32(WR_PowerMeter_Modbus, WR_PowerMeter_ModbusReg, (uint32_t*)&WR_PowerMeter_Power);
-				if(i != OK) {
-					if(GETBIT(WR.Flags, WR_fLogFull) && HP.get_testMode() == NORMAL) journal.jprintf("WR: Modbus read err %d\n", i);
-				}
-#ifdef PWM_CALC_POWER_ARRAY
-				else WR_Calc_Power_Array_NewMeter(WR_PowerMeter_Power);
-#endif
-//			}
-		}
-#else
-#if defined(PWM_CALC_POWER_ARRAY) && defined(WR_CurrentSensor_4_20mA)
-		WR_Calc_Power_Array_NewMeter(0);
-#endif
-#endif
-
-#ifdef USE_UPS
-		if(HP.NO_Power && !HP.sInput[SPOWER].is_alarm()) { // Включаемся
-			if(HP.NO_Power_delay) {
-				if(--HP.NO_Power_delay == 0) HP.sendCommand(pNETWORK);
-			} else {
-				journal.jprintf_date( "POWER RESTORED!\n");
-				if(!HP.Schdlr.IsShedulerOn()) {  // Расписание не активно, иначе включаемся через расписание
-					if(HP.NO_Power == 2 && HP.get_State() == pWAIT_HP) {
-						HP.NO_Power = 0;
-						journal.jprintf("Resuming work...\n");
-						HP.sendCommand(pRESUME);
-					}
-				}
-				HP.NO_Power = 0;
+#if defined(WR_PowerMeter_Modbus) && TIME_READ_SENSOR >= WEB0_FREQUENT_JOB_PERIOD * 2
+		if((WR.Flags & ((1<<WR_fActive) | (1<<WR_fPeriod_1sec))) == ((1<<WR_fActive) | (1<<WR_fPeriod_1sec))) {
+			int32_t tm = GetTickCount() - ttime;
+			if((int32_t)TIME_READ_SENSOR - tm > Modbus.RS485.ModbusResponseTimeout + Modbus.RS485.ModbusMinTimeBetweenTransaction + Modbus.RS485.ModbusMinTimeBetweenTransaction / 2) {
+				vReadSensor_delay1ms(WEB0_FREQUENT_JOB_PERIOD + WEB0_FREQUENT_JOB_PERIOD / 2 - tm);	// через (WEB0_FREQUENT_JOB_PERIOD * 1.5) после начала очередного цикла чтения
+				if(GETBIT(WR.Flags, WR_fLogFull) && GETBIT(HP.get_NetworkFlags(), fWebFullLog)) journal.jprintf("WR2+: %d(%d)\n", GetTickCount() - ttime, tm);
+			 	WR_ReadPowerMeter();
 			}
-		}
+		} else //WR_PowerMeter_New = true;
 #endif
-		vReadSensor_delay1ms((TIME_READ_SENSOR - (int32_t)(GetTickCount() - ttime)) / 2);     // 1. Ожидать время нужное для цикла чтения
+			vReadSensor_delay1ms((int32_t(TIME_READ_SENSOR) - int32_t(GetTickCount() - ttime)) / 2);     // 1. Ожидать время нужное для цикла чтения
 
 		// Вычисление перегрева используются РАЗНЫЕ датчики при нагреве и охлаждении
 		// Режим работы определяется по состоянию четырехходового клапана при его отсутвии только нагрев
@@ -1389,10 +1700,26 @@ void vReadSensor(void *)
 #endif
 
 		//  Опрос состояния инвертора
-	#ifdef USE_UPS
-		if(!HP.NO_Power)
-	#endif
-			if((HP.dFC.get_present()) && (GetTickCount() - readFC > FC_TIME_READ)) {
+#ifdef USE_UPS
+		if(HP.NO_Power) {
+			if(!HP.sInput[SPOWER].is_alarm()) { // Включаемся
+				if(HP.NO_Power_delay) {
+					if(--HP.NO_Power_delay == 0) HP.sendCommand(pNETWORK);
+				} else {
+					journal.jprintf_date( "POWER RESTORED!\n");
+					if(!HP.Schdlr.IsShedulerOn()) {  // Расписание не активно, иначе включаемся через расписание
+						if(HP.NO_Power == 2 && HP.get_State() == pWAIT_HP) {
+							HP.NO_Power = 0;
+							journal.jprintf("Resuming work...\n");
+							HP.sendCommand(pRESUME);
+						}
+					}
+					HP.NO_Power = 0;
+				}
+			}
+		} else
+#endif
+			if(HP.dFC.get_present() && (GetTickCount() - readFC > FC_TIME_READ) && GetTickCount() - ttime < TIME_READ_SENSOR - (Modbus.RS485.ModbusResponseTimeout + Modbus.RS485.ModbusMinTimeBetweenTransaction)) {
 				readFC = GetTickCount();
 				HP.dFC.get_readState();
 			}
@@ -1414,7 +1741,7 @@ void vReadSensor(void *)
 			#endif
 		#endif
 			if(HP.sFrequency[i].get_checkFlow() && HP.sFrequency[i].get_Value() < HP.sFrequency[i].get_minValue()) {     // Поток меньше минимального ошибка осанавливаем ТН
-				journal.jprintf("%s low flow: %.3f\n",(char*) HP.sFrequency[i].get_name(), (float) HP.sFrequency[i].get_Value() / 1000);
+				journal.jprintf("%s low flow: %.3d\n",(char*) HP.sFrequency[i].get_name(), HP.sFrequency[i].get_Value());
 				set_Error(ERR_MIN_FLOW, (char*) HP.sFrequency[i].get_name());
 			}
 		}
@@ -1425,7 +1752,7 @@ void vReadSensor(void *)
 #endif
 
 		//
-		vReadSensor_delay1ms(TIME_READ_SENSOR - (int32_t)(GetTickCount() - ttime));     // Ожидать время нужное для цикла чтения
+		vReadSensor_delay1ms(TIME_READ_SENSOR - int32_t(GetTickCount() - ttime));     // Ожидать время нужное для цикла чтения
 
 	}  // for
 	vTaskDelete( NULL);
@@ -1434,7 +1761,11 @@ void vReadSensor(void *)
 // Вызывается во время задержек в задаче чтения датчиков
 void vReadSensor_delay1ms(int32_t ms)
 {
-	if(ms <= 0) return;
+	if(ms <= 0 || ms >= (int32_t)TIME_READ_SENSOR) return;
+	if(ms <= 2) {
+		vTaskDelay(ms);
+		return;
+	}
 	uint32_t tm = GetTickCount();
 	do {
 #ifdef  KEY_ON_OFF // Если надо проверяем кнопку включения ТН
@@ -1456,18 +1787,7 @@ void vReadSensor_delay1ms(int32_t ms)
 #ifdef USE_UPS
 		HP.sInput[SPOWER].Read(true);
 		if(HP.sInput[SPOWER].is_alarm()) { // Электричество кончилось
-			if(!HP.NO_Power) {
-				HP.NO_Power = 1;
-				HP.save_motoHour();
-				Stats.SaveStats(0);
-				Stats.SaveHistory(0);
-				journal.jprintf_date( "POWER LOST!\n");
-				if(HP.get_State() == pSTARTING_HP || HP.get_State() == pWORK_HP) {
-					HP.sendCommand(pWAIT);
-					HP.NO_Power = 2;
-				}
-			}
-			HP.NO_Power_delay = NO_POWER_ON_DELAY_CNT;
+			HP.HandleNoPower();
 		}
 #endif
 #ifdef SGENERATOR
@@ -1480,13 +1800,19 @@ void vReadSensor_delay1ms(int32_t ms)
 				if(--HP.fBackupPowerOffDelay == 0) {
 					journal.jprintf_time("Switched to Normal power!\n");
 					HP.Option.flags &= ~(1<<fBackupPower);
+					if(GETBIT(HP.flags, fHP_BackupNoPwrWAIT)) {
+						HP.flags &= ~(1<<fHP_BackupNoPwrWAIT);
+						HP.sendCommand(pRESUME);
+					}
 				}
 			} else HP.Option.flags &= ~(1<<fBackupPower);
 		}
+#endif
 		if(GETBIT(HP.Option.flags, fBackupPower)) {
 			if(!HP.fBackupPowerOffDelay) {			// Нужно уменьшить нагрузку
 #ifdef RBOILER
 				HP.dRelay[RBOILER].set_OFF();		// выключить тэн бойлера
+#endif
 #ifdef WATTROUTER
 				for(uint8_t i = 0; i < WR_NumLoads; i++) {
 					if(!GETBIT(WR_Loads, i) || WR_LoadRun[i] == 0) continue;
@@ -1504,8 +1830,6 @@ void vReadSensor_delay1ms(int32_t ms)
 				HP.fBackupPowerOffDelay = RETURN_FROM_GENERATOR_DELAY / 10;
 			}
 		}
-#endif
-#endif
 #ifdef RADIO_SENSORS
 		if(ms - (GetTickCount() - tm) >= 20) check_radio_sensors();
 #endif
@@ -1552,7 +1876,7 @@ void vReadSensor_delay1ms(int32_t ms)
 					{ HP.dRelay[RPUMPB].set_ON(); }
 					else
 #endif  // #ifndef SUPERBOILER 
-						if (HP.get_Circulation())                                               // Циркуляция разрешена
+						if (HP.get_Circulation() && (!GETBIT(HP.Prof.Boiler.flags, fBoilerCircSchedule) || HP.scheduleBoiler()))   // Циркуляция разрешена
 						{
 #ifdef SUPERBOILER
 							if((HP.dRelay[RCOMP].get_Relay()||HP.dFC.isfOnOff())&&(HP.get_onBoiler() || (HP.dRelay[RSUPERBOILER].get_Relay() && !HP.dRelay[PUMP_OUT].get_Relay()))) {
@@ -1570,13 +1894,13 @@ void vReadSensor_delay1ms(int32_t ms)
 							if (HP.get_CirculPause()==0) { HP.dRelay[RPUMPB].set_ON(); goto delayTask;/* continue;*/}  // В условиях стоит время паузы 0 - включаем насос ГВС
 							if(HP.dRelay[RPUMPB].get_Relay())                                       // Насос включен Смотрим времена
 							{
-								if(((long)xTaskGetTickCount()-RPUMPBTick ) > HP.get_CirculWork()*configTICK_RATE_HZ)   // ждем время мсек
+								if(xTaskGetTickCount()-RPUMPBTick > HP.get_CirculWork()*configTICK_RATE_HZ)   // ждем время мсек
 								{
 									RPUMPBTick=xTaskGetTickCount();
 									HP.dRelay[RPUMPB].set_OFF();                                  // выключить насос
 								}
 							} else {                                                                // Насос выключен
-								if(((long)xTaskGetTickCount()-RPUMPBTick ) >  HP.get_CirculPause()*configTICK_RATE_HZ)   // ждем время мсек
+								if(xTaskGetTickCount()-RPUMPBTick >  HP.get_CirculPause()*configTICK_RATE_HZ)   // ждем время мсек
 								{
 									RPUMPBTick=xTaskGetTickCount();
 									HP.dRelay[RPUMPB].set_ON();                                    // включить насос
@@ -1595,7 +1919,7 @@ void vReadSensor_delay1ms(int32_t ms)
 		{  // error: jump to label [-fpermissive] GCC
 			// Переключение расписания, когда текущий месяц и дясятидневка совпадают; если пропустили из-за выключенного НК или работы,
 			// то пропустили. Расписание выбирается один раз, если вручную перевыбрать, то еще раз автоматически выбираться не будет до следующего года
-			if(HP.Schdlr.IsShedulerOn()) {
+			if(HP.Schdlr.IsShedulerOn() && !(HP.Schdlr.sch_data.AutoSelectMonthWeek[HP.Schdlr.sch_data.Active] & fSch_AS_DontSwitch)) {
 				uint8_t d = rtcSAM3X8.get_days();
 				if(Scheduler_check_day != d) {
 					Scheduler_check_day = d;
@@ -1604,16 +1928,15 @@ void vReadSensor_delay1ms(int32_t ms)
 					bool need_save = false;
 					for(uint8_t i = 0; i < MAX_CALENDARS; i++) {
 						if(HP.Schdlr.sch_data.AutoSelectMonthWeek[i]) {
-							if((HP.Schdlr.sch_data.AutoSelectMonthWeek[i] & ~0x80) == ((rtcSAM3X8.get_months() << 3) | d)) {
-								if(HP.Schdlr.sch_data.Active != i && !(HP.Schdlr.sch_data.AutoSelectMonthWeek[i] & 0x80)) {
+							if((HP.Schdlr.sch_data.AutoSelectMonthWeek[i] & ~fSch_AS_Changed) == ((rtcSAM3X8.get_months() << 2) | d)) {
+								if(HP.Schdlr.sch_data.Active != i && !(HP.Schdlr.sch_data.AutoSelectMonthWeek[i] & fSch_AS_Changed)) {
 									journal.jprintf_time("Schedule %d selected\n", i + 1);
 									HP.Schdlr.sch_data.Active = i;
-									HP.Schdlr.sch_data.AutoSelectMonthWeek[i] |= 0x80;
+									HP.Schdlr.sch_data.AutoSelectMonthWeek[i] |= fSch_AS_Changed;
 									need_save = true;
-									break;
 								}
-							} else if(HP.Schdlr.sch_data.AutoSelectMonthWeek[i] & 0x80) {
-								HP.Schdlr.sch_data.AutoSelectMonthWeek[i] &= ~0x80;
+							} else if(HP.Schdlr.sch_data.AutoSelectMonthWeek[i] & fSch_AS_Changed) {
+								HP.Schdlr.sch_data.AutoSelectMonthWeek[i] &= ~fSch_AS_Changed;
 								need_save = true;
 							}
 						}
@@ -1634,18 +1957,18 @@ void vReadSensor_delay1ms(int32_t ms)
 							uint8_t frestart = _mode != pOFF && currmode != pOFF && (currmode & (pHEAT | pCOOL)) && (currmode & (pHEAT | pCOOL)) != (_mode & (pHEAT | pCOOL)); // Если направление работы ТН разное
 							if(frestart) {
 								HP.sendCommand(pWAIT);
-								uint8_t i = DELAY_BEFORE_STOP_IN_PUMP + HP.Option.delayOffPump + 1;
+								uint8_t i = DELAY_BEFORE_STOP_IN_PUMP + (HP.get_modeHouse() == pCOOL ? HP.Prof.Cool.delayOffPump : HP.Prof.Heat.delayOffPump) + 1;
 								while(HP.isCommand()) {	_delay(1000); if(!--i) break; } // ждем отработки команды
 								if(!HP.Task_vUpdate_run) continue;
 							}
-							vTaskSuspendAll();	// без проверки
+							//vTaskSuspendAll();	// без проверки
 							HP.Prof.load(_profile);
 							HP.set_profile();
-							xTaskResumeAll();
+							//xTaskResumeAll();
 							journal.jprintf_time("Profile changed to #%d\n", _profile);
 							if(frestart) HP.sendCommand(pRESUME);
 						}
-					} else if(HP.get_State() == pWAIT_HP && !HP.NO_Power) {
+					} else if(HP.get_State() == pWAIT_HP && !HP.NO_Power && !GETBIT(HP.flags, fHP_BackupNoPwrWAIT)) {
 						HP.sendCommand(pRESUME);
 					}
 				}
@@ -1663,20 +1986,35 @@ delayTask:	// чтобы задача отдавала часть времени
 		case pSTARTING_HP: _delay(10000); break; // 1 Стартует  - этого не должно быть в этом месте
 		case pWORK_HP:                           // 3 Работает   - анализ режима работы get_modWork()
 			if((HP.get_modWork() & pHEAT)) {	// Отопление
-				if(HP.get_ruleHeat()==pHYSTERESIS)  vTaskDelay(TIME_CONTROL/portTICK_PERIOD_MS);    // Гистерезис
-				else
-					vTaskDelay(HP.dFC.get_Uptime()*1000/portTICK_PERIOD_MS);                        // Время интегрирования ПИД  секунды
+				if(HP.get_ruleHeat()==pHYSTERESIS)
+					vTaskDelay(TIME_CONTROL/portTICK_PERIOD_MS);    // Гистерезис
+				else vTaskDelay(HP.dFC.get_Uptime() * 1000/portTICK_PERIOD_MS);                        // Время интегрирования ПИД  секунды
 			} else if((HP.get_modWork() & pCOOL)) { // охлаждение
-				if(HP.get_ruleCool()==pHYSTERESIS)  vTaskDelay(TIME_CONTROL/portTICK_PERIOD_MS);    // Гистерезис
-				else
-					vTaskDelay(HP.dFC.get_Uptime()*1000/portTICK_PERIOD_MS);                        // Время интегрирования ПИД секунды
-			} else if((HP.get_modWork() & pCOOL)) { // бойлер
-				vTaskDelay(HP.dFC.get_Uptime()*1000/portTICK_PERIOD_MS);                            // Время интегрирования ПИД секунды
+				if(HP.get_ruleCool()==pHYSTERESIS)
+					vTaskDelay(TIME_CONTROL/portTICK_PERIOD_MS);    // Гистерезис
+				else vTaskDelay(HP.dFC.get_Uptime() * 1000/portTICK_PERIOD_MS);                        // Время интегрирования ПИД секунды
+			} else if((HP.get_modWork() & pBOILER)) { // бойлер
+				if(GETBIT(HP.Prof.Boiler.flags, fBoilerPID))
+					vTaskDelay(HP.dFC.get_Uptime() * 1000/portTICK_PERIOD_MS);  // Время интегрирования ПИД секунды
+				else vTaskDelay(TIME_CONTROL_BOILER/portTICK_PERIOD_MS);                                        // Гистерезис
 			} else { // Пауза
 				vTaskDelay(TIME_CONTROL/portTICK_PERIOD_MS);                                        // Гистерезис
 			}
 			break;
 		case pWAIT_HP:                          // 4 Ожидание ТН (расписание - пустое место)   проверям раз в 5 сек
+			if(GETBIT(HP.Option.flags2, f2AutoStartGenerator) && GETBIT(HP.flags, fHP_BackupNoPwrWAIT)) {
+				if(HP.get_modeHouse() == pHEAT) {
+					if(GETBIT(HP.Prof.Heat.flags,fTarget) ? HP.RET : HP.sTemp[TIN].get_Temp() < HP.get_targetTempHeat() - HP.Prof.Heat.dTempGen) {
+						HP.sendCommand(pRESUME);
+					}
+				} else if(HP.get_modeHouse() == pCOOL) {
+					if(GETBIT(HP.Prof.Cool.flags,fTarget) ? HP.RET : HP.sTemp[TIN].get_Temp() > HP.get_targetTempCool() + HP.Prof.Cool.dTempGen) {
+						HP.sendCommand(pRESUME);
+					}
+				}
+			}
+			_delay(UPDATE_HP_WAIT_PERIOD);
+			break;
 		case pERROR_HP: 						// 5 Ошибка ТН
 			_delay(UPDATE_HP_WAIT_PERIOD);
 			break;
@@ -1849,7 +2187,6 @@ void vServiceHP(void *)
 	static uint8_t  task_dailyswitch_countm = task_updstat_countm;
 	static TickType_t timer_sec = xTaskGetTickCount(), timer_idle = 0, timer_total = 0;
 	static uint16_t restart_cnt;
-	static uint16_t pump_in_pause_timer = 0;
 	for(;;) {
 		STORE_DEBUG_INFO(70);
 		register uint32_t t = xTaskGetTickCount();
@@ -1869,6 +2206,9 @@ void vServiceHP(void *)
 			}
 			timer_sec = t;
 			if(HP.IsWorkingNow()) {
+#ifdef RHEAT
+				if(HP.RHEAT_timer < USHRT_MAX) HP.RHEAT_timer++;
+#endif
 				if(++task_updstat_chars >= HP.get_tChart()) {
 					task_updstat_chars = 0;
 					if((Charts_when_comp_on && HP.is_compressor_on()) || (!Charts_when_comp_on && HP.get_State() != pOFF_HP)) { // пришло время
@@ -1878,7 +2218,7 @@ void vServiceHP(void *)
 					} else {
 #ifdef WATTROUTER
 #ifdef WR_PowerMeter_Modbus
-						if(ChartsModSetup[0].object == STATS_OBJ_WattRouter_In) HP.Charts[0].add_Point(WR_PowerMeter_Power / 10);
+						if(ChartsModSetup[0].object == STATS_OBJ_WattRouter_In) HP.Charts[0].add_Point(WR_PowerMeter_Power);
 #else
 						if(ChartsModSetup[0].object == STATS_OBJ_WattRouter_In) HP.Charts[0].add_Point(WR_Pnet);
 #endif
@@ -1889,21 +2229,70 @@ void vServiceHP(void *)
 				if(m != task_updstat_countm) { 								// Через 1 минуту
 					task_updstat_countm = m;
 					STORE_DEBUG_INFO(73);
+					uint8_t h = rtcSAM3X8.get_hours();
+					TarifNightNow = h >= TARIF_NIGHT_START || h < TARIF_NIGHT_END;
 					HP.updateCount();                                       // Обновить счетчики моточасов
 					STORE_DEBUG_INFO(74);
 					if(task_updstat_countm == 59) HP.save_motoHour();		// сохранить раз в час
 					Stats.History();                                        // запись истории в файл
 					taskYIELD();
+#ifdef USE_ELECTROMETER_SDM
+					if(GETBIT(HP.Option.flags2, f2LogEnergy)) {
+						if(m == 0 && (h == 0 || h == TARIF_NIGHT_START || h == TARIF_NIGHT_END)) {
+							static float tmp;
+							if(Modbus.readInputRegistersFloat(SDM_MODBUS_ADR, SDM_AC_ENERGY, &tmp) == OK
+									|| Modbus.readInputRegistersFloat(SDM_MODBUS_ADR, SDM_AC_ENERGY, &tmp) == OK)
+								journal.jprintf_time("ENERGY: %.3f\n", tmp);
+						}
+					}
+#endif
+#ifdef RADIO_SENSORS
+					// Проверка потерянных радиодатчиков
+					for(uint8_t i = 0; i < RADIO_SENSORS_MAX; i++) {
+						if(radio_received[i].RSSI != 255) continue;
+						for(uint8_t j = 0; j < TNUMBER; j++) {
+							if(HP.sTemp[j].get_flag(fErrorWasSend)) continue;
+							if((HP.sTemp[j].get_setup_flags() & ((1<<fTEMP_HeatTarget)|(1<<fTEMP_HeatFloor)|(1<<fTEMP_as_TIN_min)|(1<<fTEMP_as_TIN_average))) || j == TOUT || j == TIN) {
+								uint8_t *addr = HP.sTemp[j].get_address();
+								if(*addr == tRadio && memcmp(&radio_received[i].serial_num, addr + 1, sizeof(radio_received[0].serial_num)) == 0) {
+									if(HP.message.setMessage(pMESSAGE_WARNING, (char*) "Нет связи с радиодатчиком ", 0)) {
+										HP.message.setMessage_add_text(HP.sTemp[j].get_name());
+										HP.sTemp[j].set_flag(fErrorWasSend, 1);
+									}
+									break;
+								}
+							}
+						}
+					}
+#endif
+
 				} else if(m != task_dailyswitch_countm) {
 					task_dailyswitch_countm = m;
-					uint32_t tt = rtcSAM3X8.get_hours() * 100 + m;
+					typeof(DailySwitch_on) _dson = 0;
+					uint32_t hhmm = rtcSAM3X8.get_hours() * 100 + m;
 					for(uint8_t i = 0; i < DAILY_SWITCH_MAX; i++) {
 						if(HP.Prof.DailySwitch[i].Device == 0) break;
 						if(HP.Prof.DailySwitch[i].Device >= RNUMBER) continue;
-						uint32_t st = HP.Prof.DailySwitch[i].TimeOn * 10;
-						uint32_t end = HP.Prof.DailySwitch[i].TimeOff * 10;
-						HP.dRelay[HP.Prof.DailySwitch[i].Device].set_Relay(((end >= st && tt >= st && tt <= end) || (end < st && (tt >= st || tt <= end)))
-								&& !HP.NO_Power && !GETBIT(HP.Option.flags, fBackupPower) ? fR_StatusDaily : -fR_StatusDaily);
+						int8_t ds = HP.NO_Power || GETBIT(HP.Option.flags, fBackupPower) ? 0 : HP.Prof.check_DailySwitch(i, hhmm);
+						_dson |= (ds < 0 ? GETBIT(DailySwitch_on, i) : ds)<<i;
+					}
+					for(uint8_t i = 0; i < DAILY_SWITCH_MAX; i++) {
+						if(HP.Prof.DailySwitch[i].Device == 0) break;
+						if(HP.Prof.DailySwitch[i].Device >= RNUMBER) continue;
+						if(GETBIT((_dson ^ DailySwitch_on), i)) { //GETBIT(_dson, i) != HP.dRelay[HP.Prof.DailySwitch[i].Device].get_Relay()) {
+							if(!GETBIT(_dson, i)) { // off
+								uint8_t j = i + 1;
+								for(; j < DAILY_SWITCH_MAX; j++) {
+									if(HP.Prof.DailySwitch[i].Device == HP.Prof.DailySwitch[j].Device && GETBIT(_dson, j)) break;
+								}
+								if(j < DAILY_SWITCH_MAX) { // Еще есть тоже реле или реле уже включено
+									SETBIT0(DailySwitch_on, i);
+									continue;
+								}
+							}
+							HP.dRelay[HP.Prof.DailySwitch[i].Device].set_Relay(GETBIT(_dson, i) ? fR_StatusDaily : -fR_StatusDaily);
+							DailySwitch_on = (DailySwitch_on & ~(1<<i)) | (_dson & (1<<i));
+						}
 					}
 				}
 				STORE_DEBUG_INFO(75);
@@ -1911,30 +2300,40 @@ void vServiceHP(void *)
 			if(HP.PauseStart) {
 				if(HP.PauseStart == 1) {
 					restart_cnt = HP.isCommand() == pRESTART ? HP.Option.delayStartRes : HP.Option.delayRepeadStart;  // Определение времени задержки
-					journal.jprintf((const char*) "Start over %d sec . . .\n", restart_cnt);
-					HP.PauseStart = 2;
+					HP.PauseStart = 3;
+					journal.jprintf("Start over %d sec . . .\n", restart_cnt);
+				} else if(HP.PauseStart == 2) { // Быстрый рестарт
+					restart_cnt = DELAY_REPEAT_FAST;
+					HP.PauseStart = 3;
+					journal.jprintf("Start over %d sec . . .\n", restart_cnt);
 				} else if(restart_cnt-- == 0) {
 					HP.PauseStart = 0;
 					HP.sendCommand(pAUTOSTART);
 				}
 			}
-			if(HP.startPump) {  // Если разрешена работа насоса( 0 - останов задачи, 1 - запуск, 2 - в работе (выкл), 3 - в работе (вкл))
-				if(HP.startPump == 1 && HP.get_pausePump() == 0 && HP.get_workPump()) { // Постоянно работают
-					goto xPumpsOn;
+			if(HP.startPump) {  // Если разрешена работа насоса (0 - останов задачи, > 1 - работа)
+				if(HP.startPump == 4) { // Отработка после останова компрессора
+					if(HP.pump_in_pause_timer == 0) {
+						HP.PUMPS_OFF;
+						if(HP.get_State() == pOFF_HP) {
+							HP.startPump = 0;							// Задача насосов в паузе выключена
+						} else if(HP.get_workPump()) {
+							HP.pump_in_pause_timer = HP.get_pausePump();
+							HP.startPump = 1;							// Поставить признак запуска задачи насос
+						}
+					} else HP.pump_in_pause_timer--;
 				} else if(HP.get_workPump()) {
-					if(pump_in_pause_timer <= 1) {
-						if(HP.startPump <= 2) { // включить
-							pump_in_pause_timer = HP.get_workPump();
-xPumpsOn:					HP.dRelay[PUMP_OUT].set_ON();                  	// включить насос отопления
-							HP.Pump_HeatFloor(true);						// включить насос ТП
+					if(HP.pump_in_pause_timer <= 1) {
+						if(HP.startPump <= 2) { 						// включить
+							HP.pump_in_pause_set(true);
+							HP.pump_in_pause_timer = HP.get_workPump();
 							HP.startPump = 3;
-						} else { // выключить
-							HP.dRelay[PUMP_OUT].set_OFF();                 	// выключить насос отопления
-							HP.Pump_HeatFloor(false);						// выключить насос ТП
-							pump_in_pause_timer = HP.get_pausePump();
+						} else if(HP.get_pausePump()) { 				// выключить
+							HP.pump_in_pause_set(false);
+							HP.pump_in_pause_timer = HP.get_pausePump();
 							HP.startPump = 2;
 						}
-					} else pump_in_pause_timer--;
+					} else HP.pump_in_pause_timer--;
 				}
 			}
 			STORE_DEBUG_INFO(76);
@@ -1962,25 +2361,23 @@ xPumpsOn:					HP.dRelay[PUMP_OUT].set_ON();                  	// включит�
 			// Проверки граничных температур для уведомлений, если разрешено!
 			static uint16_t countTEMP = 0;        // Для проверки критических температур для рассылки уведомлений
 			if(HP.message.get_fMessageTemp()) {
-				if(countTEMP > TIME_MESSAGE_TEMP) {
+				if(++countTEMP > TIME_MESSAGE_TEMP) {
 					countTEMP = 0;
-					if(HP.message.get_mTIN() > HP.sTemp[TIN].get_Temp()) HP.message.setMessage(pMESSAGE_TEMP,
-							(char*) "Критическая температура в доме,", HP.sTemp[TIN].get_Temp());
-					if(HP.message.get_mTBOILER() > HP.sTemp[TBOILER].get_Temp()) HP.message.setMessage(pMESSAGE_TEMP,
-							(char*) "Критическая температура ГВС,", HP.sTemp[TBOILER].get_Temp());
-					if(HP.message.get_mTCOMP() < HP.sTemp[TCOMP].get_Temp()) HP.message.setMessage(pMESSAGE_TEMP,
-							(char*) "Критическая температура компрессора,", HP.sTemp[TCOMP].get_Temp());
-				} else countTEMP += TIME_READ_SENSOR / 100; // в 0.1 сек
+					if(HP.sTemp[TIN].get_Temp() != STARTTEMP && HP.message.get_mTIN() > HP.sTemp[TIN].get_Temp()) HP.message.setMessage(pMESSAGE_TEMP, (char*) "Критическая температура в доме,", HP.sTemp[TIN].get_Temp());
+					else if(HP.sTemp[TBOILER].get_Temp() != STARTTEMP && HP.message.get_mTBOILER() > HP.sTemp[TBOILER].get_Temp()) HP.message.setMessage(pMESSAGE_TEMP, (char*) "Критическая температура ГВС,", HP.sTemp[TBOILER].get_Temp());
+					else if(HP.sTemp[TCOMP].get_Temp() != STARTTEMP && HP.message.get_mTCOMP() < HP.sTemp[TCOMP].get_Temp()) HP.message.setMessage(pMESSAGE_TEMP, (char*) "Критическая температура компрессора,", HP.sTemp[TCOMP].get_Temp());
+				}
 			}
 			static uint8_t last_life_h = 255;
-			if(HP.message.get_fMessageLife()) // Подача сигнала жизни если разрешено!
-			{
-				uint8_t hour = rtcSAM3X8.get_hours();
-				if(hour == HOUR_SIGNAL_LIFE && hour != last_life_h) {
-					HP.message.setMessage(pMESSAGE_LIFE, (char*) "Контроллер работает . . .", 0);
+			uint8_t hour = rtcSAM3X8.get_hours();
+			if(hour == HOUR_SIGNAL_LIFE && hour != last_life_h) {
+				if(HP.message.get_fMessageLife()) { // Подача сигнала жизни если разрешено!
+					if(HP.message.setMessage(pMESSAGE_LIFE, (char*) "Контроллер работает . . .", 0)) last_life_h = hour;
+				} else last_life_h = hour;
+				for(uint8_t j = 0; j < TNUMBER; j++) { // Очистка флага отправки сообщений
+					HP.sTemp[j].set_flag(fErrorWasSend, 0);
 				}
-				last_life_h = hour;
-			}
+			} else last_life_h = hour;
 		}
 		STORE_DEBUG_INFO(77);
 #ifdef NEXTION

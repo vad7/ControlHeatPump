@@ -59,7 +59,10 @@ enum { // когда
 	STATS_WHEN_WORKD			// Во время работы компрессора, прошло STATS_WORKD_TIME
 	//STATS_WORK				// Во время работы компрессора
 };
-#define STATS_WORKD_TIME 100000 // ms
+#define STATS_WORKD_TIME 					90000UL	// ms
+#define STATS_WORKD_SKIP_TIME_HEAT_BOILER	12000UL	// ms
+#define STATS_fSD_ErrorMask		0b0011
+#define STATS_fNewYear			2
 
 //static char *stats_format = { "%.1f", "" }; // printf format string
 
@@ -78,8 +81,8 @@ Stats_Data Stats_data[] = {
 	{ 0, STATS_OBJ_Temp, STATS_TYPE_AVG, STATS_WHEN_ALWAYS, TIN },
 	{ 0, STATS_OBJ_Temp, STATS_TYPE_AVG, STATS_WHEN_WORKD, TEVAING },
 	{ 0, STATS_OBJ_Temp, STATS_TYPE_AVG, STATS_WHEN_ALWAYS, TBOILER },
-	{ 0, STATS_OBJ_Power_OUT, STATS_TYPE_SUM, STATS_WHEN_WORKD, 0 },	// #6
-	{ 0, STATS_OBJ_Power, STATS_TYPE_SUM, STATS_WHEN_ALWAYS, 0 },// #7
+	{ 0, STATS_OBJ_Power_OUT, STATS_TYPE_SUM, STATS_WHEN_ALWAYS, 0 },	// #6
+	{ 0, STATS_OBJ_Power, STATS_TYPE_SUM, STATS_WHEN_ALWAYS, 0 },		// #7
 	{ 0, STATS_OBJ_Power, STATS_TYPE_MAX, STATS_WHEN_ALWAYS, 0 },
 	{ 0, STATS_OBJ_COP_Full, STATS_TYPE_MIN, STATS_WHEN_WORKD, 0 },
 	{ 0, STATS_OBJ_COP_Full, STATS_TYPE_AVG, 6, 7 }, // индексы Stats_data[]: STATS_OBJ_Power(SUM, OBJ_powerCO) / STATS_OBJ_Power(SUM, OBJ_power220)
@@ -99,6 +102,19 @@ Stats_Data Stats_data[] = {
 #ifdef WATTROUTER
 	,{ 0, STATS_OBJ_WattRouter_Out, STATS_TYPE_SUM, STATS_WHEN_ALWAYS, 0 }
 #endif
+#ifdef RBOILER
+	,{ 0, STATS_OBJ_Power_RBOILER, STATS_TYPE_SUM, STATS_WHEN_ALWAYS, 0 }
+#endif
+#if defined(RBOILER) || defined(RPUMPBH) || defined(R3WAY)
+	,{ 0, STATS_OBJ_Power_BOILER, STATS_TYPE_SUM, STATS_WHEN_ALWAYS, 0 }
+#endif
+#ifdef WATTROUTER
+	,{ 0, STATS_OBJ_WattRouter_Excess, STATS_TYPE_MAX, STATS_WHEN_ALWAYS, 0 }
+#endif
+#ifdef USE_ELECTROMETER_SDM
+	,{ 0, STATS_OBJ_PowerDay, STATS_TYPE_SUM, STATS_WHEN_ALWAYS, 0 }
+	,{ 0, STATS_OBJ_PowerNight, STATS_TYPE_SUM, STATS_WHEN_ALWAYS, 0 }
+#endif
 };
 
 const char stats_file_start[] = "stats_";
@@ -113,7 +129,7 @@ static fname_t open_fname;
 class Statistics
 {
 public:
-	Statistics() { NewYearFlag = 0; }
+	Statistics() { Flags = 0; }
 	void	Init(uint8_t newyear = 0);
 	void	Update();										// Обновить статистику, раз в период
 	void	UpdateEnergy();									// Обновить энергию и COP, вызывается часто
@@ -132,16 +148,18 @@ public:
 	void	CheckCreateNewFile();
 	int8_t	CreateOpenFile(uint8_t what);
 	void	History();										// Логирование параметров работы ТН, раз в 1 минуту
+	void	ReinitSD(void);
+
+	uint32_t compressor_on_timer;							// ms
 private:
 	void	Error(const char *text, uint8_t what);
 	uint16_t counts;										// Кол-во уже совершенных обновлений
 	uint16_t counts_work;									// Кол-во уже совершенных обновлений во время работы компрессора
-	uint32_t compressor_on_timer;
 	uint32_t previous;
 	uint8_t	 day;
 	uint8_t	 month;
 	uint16_t year;
-	uint8_t  NewYearFlag;
+	uint8_t  Flags;											// Рабочие флаги
 	uint32_t BlockStart;
 	uint32_t BlockEnd;
 	uint32_t CurrentBlock;

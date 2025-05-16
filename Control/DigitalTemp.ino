@@ -25,27 +25,23 @@ void sensorTemp::initTemp(int sensor)
       numErrorRead=0;                          // Ошибок нет
       sumErrorRead=0;                          // ошибок нет
       number = sensor;
-      minTemp=MINTEMP[sensor];                 // минимальная разрешенная температура
-      maxTemp=MAXTEMP[sensor];                 // максимальная разрешенная температура
       errTemp=ERRTEMP[sensor];                 // статическая ошибка датчика
       testTemp=TESTTEMP[sensor];               // Значение при тестировании
       lastTemp=STARTTEMP;                      // последняя считанная температура с датчика по умолчанию абсолютный ноль
-      Temp=0;                                  // температура датчика (обработанная)
+      Temp=STARTTEMP;                                  // температура датчика (обработанная)
       flags=0x00;                              // Сбросить все флаги
 
       if(SENSORTEMP[sensor]) SETBIT1(flags, fPresent); // наличие датчика в текушей конфигурации
       memset(address, 0, sizeof(address));	   // обнуление адресс датчика
       busOneWire = NULL;
-      testMode = NORMAL;                         // Значение режима тестирования
 #if T_NUMSAMLES > 1
-      memset(t, 0, sizeof(t));	   			   // обнуление буффера значений
+      memset(t_buf, 0, sizeof(t_buf));	   			   // обнуление буффера значений
       sum=0;
       last=0;
 #endif
       nGap=0;                                  // Счечик "разорванных" данных  - требуется для фильтрации помехи
       note=(char*)noteTemp[sensor];            // присвоить наименование датчика
       name=(char*)nameTemp[sensor];            // присвоить имя датчика
-
      // Удаленные устройства  #ifdef SENSOR_IP
      #ifdef SENSOR_IP
       devIP=NULL;                             // Ссылка на привязаный датчик (класс) если NULL привявязки нет
@@ -81,12 +77,12 @@ int16_t sensorTemp::Read_NTC(uint16_t val)
 // Чтение датчиков температуры, возвращает код ошибки, делает все преобразования
 int8_t sensorTemp::Read() 
 {  
-	if(!(GETBIT(flags, fPresent))) return OK;          // датчик запрещен в конфигурации ничего не делаем
-	if(testMode!=NORMAL) lastTemp=testTemp;             // В режиме теста присвоить значение теста
+	if(!(GETBIT(flags, fPresent))) return OK;           // датчик запрещен в конфигурации ничего не делаем
+	if(testMode != NORMAL) lastTemp = testTemp;         // В режиме теста присвоить значение теста
 	else {                                              // Чтение датчиков
 #ifdef DEMO
-		if (strcmp(name,"TBOILER")==0) lastTemp=4500;       // В демо бойлер всегда 45 градусов нужно для отладки
-		else lastTemp=random(101,1190);                     // В демо режиме генерим значения
+		if (strcmp(name,"TBOILER")==0) lastTemp=4500;   // В демо бойлер всегда 45 градусов нужно для отладки
+		else lastTemp=random(101,1190);                 // В демо режиме генерим значения
 #else   // чтение датчика
 		if(!(GETBIT(flags,fAddress))) { // Адрес не установлен
 			if(number == TCOMP) { // эти датчики должны быть привязаны
@@ -107,12 +103,22 @@ int8_t sensorTemp::Read()
 #endif
 #ifdef TNTC
 			if(*address == tADC) {
-				lastTemp = Read_NTC(TNTC_Value[address[1] - '0']);
+				int16_t ttemp = Read_NTC(TNTC_Value[address[1] - '0']);
+				if(lastTemp == STARTTEMP || (abs(lastTemp - ttemp) < GAP_TEMP_VAL)) {
+					lastTemp = ttemp;
+					nGap = 0;
+				} else { // Данные сильно отличаются от предыдущих
+					if(++nGap > GAP_NUMBER) nGap = 0;
+				   if(nGap == 0 || !get_setup_flag(fTEMP_dont_log_errors)) {
+					   journal.jprintf_time("GAP %s t=%.2d(%.2d), %s\n", name, ttemp, lastTemp, nGap == 0 ? "accept" : "skip");
+					   if(nGap == 0) lastTemp = ttemp;
+				   }
+				}
 			} else
 #endif
 #ifdef TNTC_EXT
 			if(*address == tADS1115) {
-				//...
+				// to do...
 			} else
 #endif
 			{
@@ -143,38 +149,28 @@ int8_t sensorTemp::Read()
 				   if((get_setup_flags() & ((1<<fTEMP_dont_log_errors) | (1<<fTEMP_ignory_errors))) == ((1<<fTEMP_dont_log_errors) | (1<<fTEMP_ignory_errors))) {
 					   if(ttemp == 8500) {
 						   if(nGap > 1) nGap--;
-					   } else if(nGap > GAP_NUMBER_BAD) {
-						   nGap = 0;
-						   lastTemp = ttemp;
-					   }
+					   } else if(nGap > GAP_NUMBER_BAD) nGap = 0;
 				   } else if(get_setup_flag(fTEMP_ignory_CRC)) {
-					   if(nGap > GAP_NUMBER_CRC ) {
-						   nGap = 0;
-					   	   lastTemp = ttemp;
-					   }
+					   if(nGap > GAP_NUMBER_CRC ) nGap = 0;
 				   } else if(get_setup_flag(fTEMP_ignory_errors)) {
-					   if(nGap > GAP_NUMBER_NERR ) {
-						   nGap = 0;
-					   	   lastTemp = ttemp;
-					   }
-				   } else if(nGap > GAP_NUMBER) {
-					   nGap = 0;
-					   lastTemp = ttemp;
+					   if(nGap > GAP_NUMBER_NERR ) nGap = 0;
+				   } else if(nGap > GAP_NUMBER) nGap = 0;
+				   if(nGap == 0 || !get_setup_flag(fTEMP_dont_log_errors)) {
+					   journal.jprintf_time("GAP %s t=%.2d(%.2d), %s\n", name, ttemp, lastTemp, nGap == 0 ? "accept" : "skip");
+					   if(nGap == 0) lastTemp = ttemp;
 				   }
-				   if(nGap == 0 || !get_setup_flag(fTEMP_dont_log_errors))
-					   journal.jprintf_time("GAP %s t=%.2d, %s\n", name, ttemp, nGap == 0 ? "accept" : "skip");
 				}
 			}
 		}
-#endif
+#endif // DEMO
 	}
 
 	// Усреднение значений
   #if T_NUMSAMLES == 1         // При 1 - без усреднения
 	Temp = lastTemp + errTemp;
   #else                        // буфер может быть не полным
-	sum = sum-t[last];           // Убрать самое старое значение из суммы
-	t[last] = lastTemp;          // Запомить новое значение
+	sum = sum-t_buf[last];           // Убрать самое старое значение из суммы
+	t_buf[last] = lastTemp;          // Запомить новое значение
 	sum = sum + lastTemp;          // Добавить новое значение
 
 	if (last<(T_NUMSAMLES-1)) last++; else { last=0; SETBIT1(flags,fFull);}  // Установить признак буфер полный при T_NUMSAMLES=1 буфер всегда полный (придупреждение компилятора)
@@ -182,9 +178,6 @@ int8_t sensorTemp::Read()
 	else                      Temp=sum/last+errTemp;
   #endif
 
-	// Проверка на ошибки именно здесь обрабатывются ошибки и передаются на верх
-	if(Temp<minTemp) { set_Error(err = ERR_MINTEMP, name); return err; }
-	if(Temp>maxTemp) { set_Error(err = ERR_MAXTEMP, name); return err; }
 	// дошли до сюда значит ошибок нет
 	return (err = OK);                                        // Новый цикл новые ошибки!! СБРОС ОШИБКИ
 }
@@ -196,34 +189,29 @@ int8_t sensorTemp::set_errTemp(int16_t t)
 }
 
 // Получить значение температуры датчика (n.nn) с учетом удаленных датчиков!!! - это то что используется в работе ТН
-int16_t sensorTemp::get_Temp()            
+int16_t sensorTemp::get_Temp()
 {
- #ifdef SENSOR_IP                                       // использутся удаленные датчики
- int16_t t;
- if (!(GETBIT(flags,fPresent))) return 0;               // проводной датчик запрещен в конфигурации ничего не делаем
- if( (devIP->get_fUse())&&(devIP->get_link()>-1))       // Удаленный датчик привязан к данному проводному датчику надо использовать
-   {
-    if (devIP->get_update()>UPDATE_IP)  return Temp;    // Время просрочено, удаленный датчик не используем
-    t=devIP->get_Temp();                                // Получить значение температуры удаленного датчика
-    if ((devIP->get_fRule())) return (t+Temp)/2;          // Усреднение датчиков
-    else return t;                                      // Использование только удаленного датчика
-   }
-  else return Temp;                                     // датчик не привязан
- #else                                                  // При отсутствии удаленныхдатчиков сразу выводим проводной датчик
-   return Temp;
- #endif
+#ifdef SENSOR_IP                                       // использутся удаленные датчики
+	int16_t t;
+	if (!(GETBIT(flags,fPresent))) return 0;               // проводной датчик запрещен в конфигурации ничего не делаем
+	if( (devIP->get_fUse())&&(devIP->get_link()>-1))       // Удаленный датчик привязан к данному проводному датчику надо использовать
+	{
+		if(devIP->get_update()>UPDATE_IP) return Temp;    // Время просрочено, удаленный датчик не используем
+		t = devIP->get_Temp();                                // Получить значение температуры удаленного датчика
+		if((devIP->get_fRule())) t = (t+Temp)/2;          // Усреднение датчиков
+		else t += errTemp;
+		return t;                                         // Использование только удаленного датчика
+	}
+	else return Temp;                                     // датчик не привязан
+#else                                                  // При отсутствии удаленных датчиков сразу выводим проводной датчик
+	return Temp;
+#endif
 }
 
 // Получить значение температуры ПРОВОДНОГО датчика
 int16_t sensorTemp::get_rawTemp()
 {
 	return Temp;
-}
-
-// Установить значение температуры датчика в режиме теста
-int8_t sensorTemp::set_testTemp(int16_t t)            
-{
- if((t>=minTemp)&&(t<=maxTemp)) { testTemp=t; return OK;} else return WARNING_VALUE;
 }
 
 // Шина
@@ -516,7 +504,7 @@ void check_radio_sensors(void)
 
 void radio_sensor_send(char *cmd)
 {
-	journal.jprintf("Radio cmd: %s", cmd);
+	journal.jprintf("Radio cmd: %s\n", cmd);
 	while(rs_serial_idx && rs_serial_idx) _delay(1); // Ждем принятия сообщения
 	memcpy(rs_serial_buf, rs_serial_header, sizeof(rs_serial_header));
 	rs_serial_buf[sizeof(rs_serial_header)] = 0; // адрес приёмника 1 байт (0 – широковещат кадр)
@@ -537,3 +525,75 @@ char Radio_RSSI_to_Level(uint8_t RSSI)
 }
 
 #endif
+
+
+// в сотых градуса
+int16_t get_TempAlarmMin(uint8_t num)
+{
+	for(uint8_t i = 0; i < TempAlarm_size; i++) if(TempAlarm[i].num == num) {
+		return (HP.sTemp[num].get_setup_flags() & ((1<<fTEMP_HeatTarget)|(1<<fTEMP_HeatFloor))) ? ((uint8_t)TempAlarm[i].MaxTemp << 8) | (uint8_t)TempAlarm[i].MinTemp : TempAlarm[i].MinTemp * 100;
+	}
+	return TEMP_ALARM_TEMP_MIN * 100;
+}
+
+// в сотых градуса
+int16_t get_TempAlarmMax(uint8_t num)
+{
+	for(uint8_t i = 0; i < TempAlarm_size; i++) if(TempAlarm[i].num == num) {
+		if(HP.sTemp[num].get_setup_flags() & ((1<<fTEMP_HeatTarget)|(1<<fTEMP_HeatFloor))) break;
+		return TempAlarm[i].MaxTemp * 100;
+	}
+	return TEMP_ALARM_TEMP_MAX * 100;
+}
+
+void set_TempAlarmMin(uint8_t num, int8_t t)
+{
+	for(uint8_t i = 0; i < TempAlarm_size; i++) if(TempAlarm[i].num == num) {
+		TempAlarm[i].MinTemp = t;
+		if(t == TEMP_ALARM_TEMP_MIN && TempAlarm[i].MaxTemp == TEMP_ALARM_TEMP_MAX) TempAlarm_remove(i);
+		return;
+	}
+	if(t != TEMP_ALARM_TEMP_MIN) {
+		uint8_t i = TempAlarm_add();
+		if(i != 255) {
+			TempAlarm[i].num = num;
+			TempAlarm[i].MinTemp = t;
+			TempAlarm[i].MaxTemp = TEMP_ALARM_TEMP_MAX;
+		}
+	}
+}
+
+void set_TempAlarmMax(uint8_t num, int8_t t)
+{
+	for(uint8_t i = 0; i < TempAlarm_size; i++) if(TempAlarm[i].num == num) {
+		TempAlarm[i].MaxTemp = t;
+		if(t == TEMP_ALARM_TEMP_MAX && TempAlarm[i].MinTemp == TEMP_ALARM_TEMP_MIN) TempAlarm_remove(i);
+		return;
+	}
+	if(t != TEMP_ALARM_TEMP_MAX) {
+		uint8_t i = TempAlarm_add();
+		if(i != 255) {
+			TempAlarm[i].num = num;
+			TempAlarm[i].MinTemp = TEMP_ALARM_TEMP_MIN;
+			TempAlarm[i].MaxTemp = t;
+		}
+	}
+}
+
+void TempAlarm_remove(uint8_t idx)
+{
+	if(!TempAlarm || idx >= TempAlarm_size) return;
+	if(idx < TempAlarm_size - 1) memcpy(&TempAlarm[idx], &TempAlarm[idx + 1], sizeof(_TempAlarm) * (TempAlarm_size - 1 - idx));
+	TempAlarm_size--;
+}
+
+uint8_t TempAlarm_add(void)
+{
+	TempAlarm = (_TempAlarm*)realloc(TempAlarm, ++TempAlarm_size * sizeof(_TempAlarm));
+	if(!TempAlarm) {
+		journal.jprintf("Low memory(%d)\n", TempAlarm_size * sizeof(_TempAlarm));
+		TempAlarm_size = 0;
+		return 255;
+	}
+	return TempAlarm_size - 1;
+}

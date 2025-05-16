@@ -1,4 +1,4 @@
-<html><head><title>Файлы. Народный контроллер ТН</title><meta charset="utf-8" />
+<html lang="ru"><head><title>Файлы. Народный контроллер ТН</title><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" type="text/css" href="style.css">
 <script src='scripts.js'></script>
@@ -6,7 +6,7 @@
 window.onload = function() {
 	var arr = document.getElementById('links').getElementsByTagName('a'); 
 	for (i=0; i<arr.length; i++) fix_href(arr[i]);
-	loadParam("get_listStats,get_listHist");
+	loadParam("get_version,get_listStats,get_listHist");
 }
 function fix_href(el) {
 	el.href = el.href.replace(/^.+:\/+.*\//i, urlcontrol + '/');
@@ -17,7 +17,10 @@ function send_files(id) {
 	var mrk = {name:"*"+id+"*", toString: function(){return "";}};
 	upload_error = false;
 	if(id == 's') fs[0].settings = 1; else upload(mrk);
-	for(i = 0; i < fs.length && !upload_error; i++) upload(fs[i]);
+	for(i = 0; i < fs.length && !upload_error; i++) {
+		upload(fs[i]);
+		if(upload_error && confirm("Повторить загрузку " + fs[i].name + "?")) { i--; upload_error = false; continue; }
+	}
 	if(id != 's' && !upload_error) {
 		mrk.name = "*"+id+"_END*";
 		upload(mrk);
@@ -49,11 +52,11 @@ function fix_hist() {
 <h1>Файлы</h1>
 <div class="row1" id="links">
 	<table>
-		<tr><td width="25%">Документация</td><td width="65%"><a class="download" href="/manual.pdf" download><button>Загрузить</button></a></td></tr>
+		<tr><td width="35%">Документация</td><td width="65%"><a class="download" href="/manual.pdf" download><button>Загрузить</button></a></td></tr>
 		<tr><td>Текущее состояние ТН</td><td><a class="download" href="/state.txt" download><button>Загрузить</button></a></td></tr>
 		<tr><td>Сохранение настроек ТН в текстовом виде</td><td><a class="download" href="/settings.txt" download><button>Загрузить</button></a></td></tr>
 		<tr><td>Прочитать всю EEPROM</td><td><a class="download" href="/settings_eeprom.bin" download><button>Загрузить</button></a></td></tr>
-		<tr><td>Сохранение настроек ТН в бинарном виде</td><td><a class="download" href="/settings.bin" download><button>Загрузить</button></a></td></tr>
+		<tr><td>Сохранение настроек ТН в бинарном виде (v<span id="get_version"></span>)</td><td><a class="download" href="/settings.bin" download><button>Загрузить</button></a></td></tr>
 		<tr><td>Восстановление настроек ТН из бинарного файла<sup>1</sup></td><td><input type="file" id="Setup"></td></tr>
 		<tr><td></td><td><input type="submit" value="Восстановить" onclick="send_files('s')"></td></tr>
 		<tr><td><b>Web интерфейс контроллера</b></td><td></td></tr>

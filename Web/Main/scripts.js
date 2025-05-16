@@ -1,12 +1,11 @@
-// Copyright (c) 2016-2021 by Vadim Kulakov vad7@yahoo.com, vad711
-// &                       by Pavel Panfilov <firstlast2007@gmail.com> pav2000
-var VER_WEB = "1.110";
+// Copyright (c) 2016-2025 by Vadim Kulakov vad7@yahoo.com, vad711
+var VER_WEB = "1.195";
 var urlcontrol = ''; //  автоопределение (если адрес сервера совпадает с адресом контроллера)
 // адрес и порт контроллера, если адрес сервера отличен от адреса контроллера (не рекомендуется)
+var urlcontrol = '';
 //var urlcontrol = 'http://192.168.0.199';
 //var urlcontrol = 'http://192.168.0.7';
-//var urlcontrol = 'http://77.50.254.24:25402';
-var urltimeout = 1800; // таймаут ожидание ответа от контроллера. Чем хуже интертнет, тем выше значения. Но не более времени обновления параметров
+var urltimeout = 1800; // таймаут ожидание ответа от контроллера. Чем хуже интертнет, тем выше значения, но не более времени обновления параметров.
 var urlupdate = 4000; // время обновления параметров в миллисекундах
 
 function setParam(paramid, resultid) {
@@ -49,14 +48,10 @@ function setParam(paramid, resultid) {
 		elval = len + ";" + elval;
 		clear = false;
 	} else if((clear = equate = elid.indexOf("=")==-1)) { // Не (x=n)
-		if((element = document.getElementById(elid.toLowerCase()))) {
-			if(element.getAttribute('type') == 'checkbox') {
-				if(element.checked) elval = 1; else elval = 0;
-			} else elval = element.value;
-		} else { // not found, try resultid
-			element = document.getElementById(resultid);
-			elval = element.value;
-		}
+		if(!(element = document.getElementById(elid.toLowerCase())) && resultid) element = document.getElementById(resultid);
+		if(element.getAttribute('type') == 'checkbox') {
+			if(element.checked) elval = 1; else elval = 0;
+		} else elval = element.value;
 		//if(typeof elval == 'string') elval = elval.replace(/[,=&]+/g, "");
 	}
 	if(/_modeHP|_listProf|_testMode|_listIP/.test(paramid)) {
@@ -140,7 +135,7 @@ function loadParam(paramid, noretry, resultdiv) {
 								else if(/_list|et_modeHP|[(]RULE|et_testMode|[(]TARGET|NSL/.test(values[0])) type = "select"; // значения
 								else if(/Prof[(]NUM|get_tbl|listRelay|sensorIP|get_numberIP|TASK_/.test(values[0])) type = "table"; 
 								else if(values[0].indexOf("get_is")==0) type = "is"; // наличие датчика в конфигурации
-								else if(values[0].indexOf("scan_")==0) type = "scan"; // ответ на сканирование
+								else if(values[0].indexOf("scan_")!=-1) type = "scan"; // ответ на сканирование
 								else if(values[0].indexOf("hide_")==0) { // clear
 									if(values[1] == '1') {
 										var elements = document.getElementsByName(valueid);
@@ -157,7 +152,7 @@ function loadParam(paramid, noretry, resultdiv) {
 									}
 								} else if(values[0].indexOf("(SCHEDULER)")!=-1) type = "sch"; // расписание бойлера
 								else if(values[0].indexOf("(Calendar")!=-1) type = "cld"; // расписание
-								else if(values[0].indexOf("et_modbus_")==1) type = "tbv"; // таблица значений
+								else if(values[0].indexOf("et_modbus_v")==1) type = "tbv"; // таблица значений
 								else if(values[0].indexOf("set_pEEV(POS")==0) {
 									var s = "get_peev-pos";
 									if(values[0].substr(-1) == 'p') s += "p";  
@@ -232,17 +227,20 @@ function loadParam(paramid, noretry, resultdiv) {
 								} else if(type == 'scan') {
 									if(valueid == "get_message-scan_sms") {
 										if(values[1] == "wait response") {
-											setTimeout(loadParam('get_Message(scan_SMS)'), 3000);
+											setTimeout(loadParam('get_Message(scan_SMS)'), 2000);
 										} else alert(values[1]);
 									} else if(valueid == "get_message-scan_mail") {
 										if(values[1] == "wait response") {
-											setTimeout(loadParam('get_Message(scan_MAIL)'), 3000);
+											setTimeout(loadParam('get_Message(scan_MAIL)'), 2000);
 										} else alert(values[1]);
-									} else if(values[0] != null && values[0] != 0 && values[1] != null && values[1] != 0) {
-										var content = "<tr><td>" + values[1].replace(/\:/g, "</td><td>").replace(/(\;)/g, "</td></tr><tr><td>") + "</td></tr>";
-										document.getElementById(values[0].toLowerCase()).innerHTML = content;
-										content = values[1].replace(/:[^;]+/g, "").replace(/;$/g, "");
-										var cont2 = content.split(';');
+									} else {
+										var cont2 = [];
+										if(values[0] != null && values[0] != 0 && values[1] != null && values[1] != 0) {
+												var content = "<tr><td>" + values[1].replace(/\:/g, "</td><td>").replace(/(\;)/g, "</td></tr><tr><td>") + "</td></tr>";
+												document.getElementById(values[0].toLowerCase()).innerHTML = content;
+												content = values[1].replace(/:[^;]+/g, "").replace(/;$/g, "");
+												cont2 = content.split(';');
+										}
 										var elems = document.getElementById("scan_table").getElementsByTagName('select');
 										for(var j = 0; j < elems.length; j++) {
 											elems[j].options.length = 0
@@ -414,7 +412,7 @@ function loadParam(paramid, noretry, resultdiv) {
 												loadsens += "get_eTemp(" +T+ "),";
 												upsens += "get_eTemp(" +T+ "),";
 												if(tnum == 1) {
-													loadsens += "get_maxTemp(" +T+ "),get_errTemp(" +T+ "),get_esTemp(" +T+ "),get_minTemp(" +T+ "),get_fTemp4(" +T+ "),get_fTemp5(" +T+ "),get_fTemp6(" +T+ "),get_nTemp(" +T+ "),get_testTemp(" +T+ "),get_bTemp(" +T+ "),";
+													loadsens += "get_maxTemp(" +T+ "),get_errTemp(" +T+ "),get_esTemp(" +T+ "),get_minTemp(" +T+ "),get_fTemp4(" +T+ "),get_fTemp5(" +T+ "),get_fTemp6(" +T+ "),get_fTemp7(" +T+ "),get_nTemp2(" +T+ "),get_testTemp(" +T+ "),get_bTemp(" +T+ "),";
 													upsens += "get_fullTemp(" +T+ "),get_esTemp(" +T+ "),";
 												} else if(tnum == 2) {
 													loadsens += "get_aTemp(" +T+ "),get_fTemp1(" +T+ "),get_fTemp2(" +T+ "),get_fTemp3(" +T+ "),get_nTemp2(" +T+ "),get_bTemp(" +T+ "),";
@@ -424,13 +422,13 @@ function loadParam(paramid, noretry, resultdiv) {
 												content += '<tr>';
 												content += '<td>' +count[j]+ '</td>';
 												if(tnum == 1) {
-													content += '<td id="get_ntemp-' +T+ '"></td>';
+													content += '<td id="get_ntemp2-' +T+ '"></td>';
 													content += '<td id="get_fulltemp-' +T+ '">-</td>';
-													content += '<td id="get_mintemp-' +T+ '">-</td>';
-													content += '<td id="get_maxtemp-' +T+ '">-</td>';
-													content += '<td nowrap><input id="get_errtemp-' +T+ '" type="number" step="0.01"><input type="submit" value=">" onclick="setParam(\'get_errTemp(' + count[j] + ')\');"></td>';
-													content += '<td nowrap><input id="get_testtemp-' +T+ '" type="number" step="0.1"><input type="submit" value=">" onclick="setParam(\'get_testTemp(' + count[j] + ')\');"></td>';
-													content += '<td nowrap><input type="checkbox" id="get_ftemp4-' +T+ '" onchange="setParam(\'get_fTemp4(' +count[j]+')\');"><input type="checkbox" id="get_ftemp5-' +T+ '" onchange="setParam(\'get_fTemp5(' +count[j]+')\');"><input type="checkbox" id="get_ftemp6-' +T+ '" onchange="setParam(\'get_fTemp6(' +count[j]+')\');"></td>';
+													content += '<td nowrap><input id="get_mintemp-' +T+ '" type="number" class="InpHide" step="1" style="max-width:50px"><input type="submit" value=">" onclick="setParam(\'get_minTemp(' + count[j] + ')\');"></td>';
+													content += '<td nowrap><input id="get_maxtemp-' +T+ '" type="number" class="InpHide" step="1" style="max-width:50px"><input type="submit" value=">" onclick="setParam(\'get_maxTemp(' + count[j] + ')\');"></td>';
+													content += '<td nowrap><input id="get_errtemp-' +T+ '" type="number" class="InpHide" step="0.01"><input type="submit" value=">" onclick="setParam(\'get_errTemp(' + count[j] + ')\');"></td>';
+													content += '<td nowrap><input id="get_testtemp-' +T+ '" type="number" step="0.01"><input type="submit" value=">" onclick="setParam(\'get_testTemp(' + count[j] + ')\');"></td>';
+													content += '<td nowrap><input type="checkbox" id="get_ftemp4-' +T+ '" onchange="setParam(\'get_fTemp4(' +count[j]+')\');"><input type="checkbox" id="get_ftemp5-' +T+ '" onchange="setParam(\'get_fTemp5(' +count[j]+')\');"><input type="checkbox" id="get_ftemp6-' +T+ '" onchange="setParam(\'get_fTemp6(' +count[j]+')\');"><input type="checkbox" id="get_ftemp7-' +T+ '" onchange="setParam(\'get_fTemp7(' +count[j]+')\');"></td>';
 													content += '<td id="get_btemp-' +T+ '">-</td>';
 													content += '<td id="get_estemp-' +T+ '">-</td>';
 												} else if(tnum == 2) {
@@ -552,15 +550,18 @@ function loadParam(paramid, noretry, resultdiv) {
 											document.getElementById(valueid).innerHTML = content;
 											loadParam(loadsens);
 										} else if(values[0] == 'get_tblPDS') {
-											var content = "";
+											var content = "", upsens = "";
 											var trows = values[1].split('|');
 											var elem = document.getElementById("get_listdsr");
 											for(var j = 0; j < trows.length - 1; j++) {
 												var tflds = trows[j].split(';');
+												upsens += 'get_Prof(DSO' + j + '),'; 
 												content += '<tr><td><select id="get_prof-dsd' + j + '" onchange="setParam(\'get_Prof(DSD' + j + ')\')">' + elem.innerHTML.replace('>' + tflds[0] + '<', ' selected>' + tflds[0] + '<') + '<\select></td><td>' + tflds[1] 
-													+ '</td><td nowrap><input id="get_prof-dss' + j + '" type="text" size="6" value="' + tflds[2] + '"> <input type="submit" value=">" onclick="setDS(\'S\',' + j + ')"></td><td nowrap><input id="get_prof-dse' + j + '" type="text" size="6" value="' + tflds[3] + '"> <input type="submit" value=">" onclick="setDS(\'E\',' + j + ')"></td></tr>';
+													+ '</td><td nowrap><input id="get_prof-dss' + j + '" type="text" size="6" value="' + tflds[2] + '"> <input type="submit" value=">" onclick="setDS(\'S\',' + j + ')"> <span id="get_prof-dso' + j + '" style="color:red"></span></td>'
+													+ '<td nowrap><input id="get_prof-dse' + j + '" type="text" size="6" value="' + tflds[3] + '"> <input type="submit" value=">" onclick="setDS(\'E\',' + j + ')"></td></tr>';
 											}
 											document.getElementById(valueid).innerHTML = content;
+											updateParam(upsens);
 										} else if(values[0] == 'get_tblWR') {
 											var content = "", upsens = "", loadsens = "";
 											var count = Number(values[1]);
@@ -569,8 +570,9 @@ function loadParam(paramid, noretry, resultdiv) {
 												upsens += "get_WRL(" + j + "),get_WRT(" + j + "),";
 												content += '<tr><td>' + (j+1) + '</td><td><input type="checkbox" id="get_ohp-wl' + j + '" onchange="setParam(\'get_oHP(WL' + j + ')\')"></td>';
 												content += '<td><input type="checkbox" id="get_ohp-wp' + j + '" onchange="setParam(\'get_oHP(WP' + j + ')\')" disabled></td>';
-												content += '<td nowrap><input id="get_ohp-wr' + j + '" type="number"><input type="submit" value=">" onclick="setParam(\'get_oHP(WR' + j + ')\')"></td>';
-												content += '<td nowrap><input id="get_wrl-' + j + '" type="number"><input type="submit" value=">" onclick="setParam(\'get_WRL(' + j + ')\')"></td>';
+												content += '<td nowrap><input id="get_ohp-wr' + j + '" type="number">';
+												if(Settings) content += '<input type="submit" value=">" onclick="setParam(\'get_oHP(WR' + j + ')\')">';
+												content += '</td><td nowrap><input id="get_wrl-' + j + '" type="number"><input type="submit" value=">" onclick="setParam(\'get_WRL(' + j + ')\')"></td>';
                                                 content += '<td id="get_wrt-' + j + '"></td><td id="get_wrn-' + j + '"></td></tr>';
 											}
 											document.getElementById(valueid).innerHTML = content;
@@ -596,12 +598,18 @@ function loadParam(paramid, noretry, resultdiv) {
 									if(element) {
 										if(element.className == "charsw") {
 											element.innerHTML = element.title.substr(values[1].toLowerCase().replace(/[^\w\d]/g, ""), 1);
+										} else if(element.className == "InpHide") {
+											if(values[1]) element.className = "";
+											element.value = values[1];
 										} else if(/^E\d+/.test(values[1])) {
 											if(element.getAttribute("type") == "submit") alert("Ошибка " + values[1]);
 											else element.placeholder = values[1];
 										} else if(element != document.activeElement) {
-											element.innerHTML = values[1];
-											element.value = element.type == "number" ? values[1].replace(/[^-0-9.,]/g, "") : values[1];
+											if(element.getAttribute('type') == 'checkbox') element.checked = values[1] == 1;
+											else {
+												element.innerHTML = values[1];
+												element.value = element.type == "number" ? values[1].replace(/[^-0-9.,]/g, "") : values[1];
+											}
 										}
 									}
 									if((element = document.getElementById(valueid + "-hide"))) {
@@ -655,6 +663,14 @@ function loadParam(paramid, noretry, resultdiv) {
 									if((element=document.getElementById('set-eev'))) element.disabled = onoff;
 									if((element=document.getElementById('set-eevp'))) element.disabled = onoff;
 									if((element=document.getElementById('get_pfc-on_off'))) element.disabled = onoff;
+								} else if(values[0] == "USR") {
+									if(values[1] != "0") {
+										var elements = document.getElementsByName("USR");
+										for(var j = 0; j < elements.length; j++) {
+											if(elements[j].id == "mlogin") elements[j].hidden = false;
+											else elements[j].hidden = true; 
+										}
+									}
 								} else if(values[0] == "get_uptime") {
 									if((element = document.getElementById("get_uptime"))) element.innerHTML = values[1];
 									if((element = document.getElementById("get_uptime2"))) element.innerHTML = values[1];
@@ -664,9 +680,9 @@ function loadParam(paramid, noretry, resultdiv) {
 								} else if(values[0] == "get_errcode" && values[1] < 0) {
 									document.getElementById("get_errcode").innerHTML = "Ошибка";
 								} else if(values[0] == "test_Mail") {
-									setTimeout(loadParam('get_Message(scan_MAIL)'), 3000);
+									setTimeout(loadParam('get_Message(scan_MAIL)'), 1000);
 								} else if(values[0] == "test_SMS") {
-									setTimeout(loadParam('get_Message(scan_SMS)'), 3000);
+									setTimeout(loadParam('get_Message(scan_SMS)'), 1000);
 								} else if(values[0] == "progFC") {
 									alert(values[1]);
 								} else if(values[0].indexOf("set_SAVE")==0) {
@@ -809,7 +825,8 @@ function autoheight() {
 	for(var i = columns.length - 1; i >= 0; i--) {
 		columns[i].style.minHeight = max_col_height; // устанавливаем высоту каждой колонки равной максимальной
 	}
-	document.body.style.minWidth = Math.max(document.body.clientWidth, document.body.scrollWidth);
+	var i = document.body.scrollWidth - document.body.clientWidth;
+	document.body.style.minWidth = i >= 0 && i < 20 ? document.body.clientWidth : Math.max(document.body.clientWidth, document.body.scrollWidth);
 }
 
 function calcacp() {

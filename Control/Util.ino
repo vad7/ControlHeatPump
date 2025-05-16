@@ -94,24 +94,26 @@ boolean parseInt16_t(const char* str, char sep, int16_t* ints, int maxNum, int b
 }
 
 // Разбор строки в IP адрес, если удачно то возвращает true, если не удачно то возвращает false и адрес не меняет
-boolean parseIPAddress(const char* str, char sep, IPAddress &ip)
-{   int i,x;
-    char y;
-    byte tmp[4];
-    for (i = 0; i < 4; i++) 
-        {
-        y=str[0];  
-        x= strtoul(str, NULL, 10);             // Convert byte
-        if (x>255) return false;               // Значение байта не верно
-        if ((x==0)&&(y!='0')) return false;    // Значение байта не верно
-        tmp[i]=x;
-        str = strchr(str, sep);               // Find next separator
-        if (str == NULL || *str == '\0') {
-            break;                            // No more separators, exit
-        }
-        str++;                                // Point to next character after separator
-    }
- if (i<4-1) return false; else { ip=tmp;return true; }  
+boolean parseIPAddress(const char *str, IPAddress &ip)
+{
+	int i, x;
+	char y;
+	byte tmp[4];
+	for(i = 0; i < 4; i++) {
+		y = str[0];
+		x = strtoul(str, NULL, 10);             // Convert byte
+		if(x > 255) return false;               // Значение байта не верно
+		if((x == 0) && (y != '0')) return false;    // Значение байта не верно
+		tmp[i] = x;
+		str = strchr(str, '.');               // Find next separator
+		if(str == NULL) break;                // No more separators, exit
+		str++;                                // Point to next character after separator
+	}
+	if(i < 4 - 1) return false;
+	else {
+		ip = tmp;
+		return true;
+	}
 }
 
 // Замена символа в строке
@@ -584,6 +586,27 @@ uint8_t initSpiDisk(boolean show)
 #endif
 }
 
+// расчитать хеш для пользователя
+void calc_WebSec_hash(type_WebSecurity *ws, char *login, char *pass, char *buf)
+{
+	journal.jprintf(" Hash %s: ", login);
+	if(ws->hash) free(ws->hash);
+	strcpy(buf, login);
+	strcat(buf, ":");
+	strcat(buf, pass);
+	int len = strlen(buf);
+	base64_encode(buf + len + 1, buf, len);
+	buf += len + 1;
+	ws->len = strlen(buf);
+	ws->hash = (char*)malloc(ws->len + 1);
+	if(!ws->hash) journal.jprintf(" MEMORY LOW!\n");
+	else {
+		memcpy(ws->hash, buf, ws->len);
+		*(ws->hash + ws->len) = '\0';
+		journal.jprintf("%s\n", ws->hash);
+	}
+}
+
 // base64 -хеш функция ------------------------------------------------------------------------------------------------
 /* Copyright (c) 2013 Adam Rudd. */
 const char b64_alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -936,6 +959,13 @@ int8_t save_2bytes(uint32_t &addr_to, uint16_t data, uint16_t &crc)
 	return OK;
 }
 
+uint16_t load_struct_size(uint8_t *from)
+{
+	uint16_t size = *((uint16_t *)from);
+	if((size & 1) == 0) size &= 0xFF;
+	return size >> 1;
+}
+
 // memcpy: <size[byte: 1|2]><struct>
 void load_struct(void *to, uint8_t **from, uint16_t to_size)
 {
@@ -971,11 +1001,18 @@ void int_to_dec_str(int32_t value, int32_t div, char **ret, uint8_t maxfract)
 int32_t round_div_int32(int32_t value, int16_t div)
 {
 	if(value >= 0) {
-		if(value % div >= (div >> 1)) value = value / div + 1; else value /= div;
+		return (value + (div / 2)) / div;
 	} else {
-		if(value % div <= -(div >> 1)) value = value / div - 1; else value /= div;
+		return (value - (div / 2)) / div;
 	}
-	return value;
+}
+
+void buffer_space_padding(char * buf, int add)
+{
+	if(add > 0) {
+		while(add--) *buf++ = ' ';
+		*buf = '\0';
+	}
 }
 
 inline uint32_t mapResolution(uint32_t value, uint32_t from, uint32_t to) {
@@ -1109,10 +1146,14 @@ void WR_Switch_Load(uint8_t idx, boolean On)
 		_itoa(abs(pin), Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1);
 		strcat(Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1, HTTP_MAP_RELAY_SW_2);
 		_itoa(On, Socket[MAIN_WEB_TASK].outBuf + sizeof(HTTP_MAP_RELAY_SW_1)-1 + sizeof(HTTP_MAP_RELAY_SW_2)-1);
-		if(Send_HTTP_Request(HTTP_MAP_Server, Socket[MAIN_WEB_TASK].outBuf, 3) == 1) { // Ok?
+		if(Send_HTTP_Request(HTTP_MAP_Server, WebSec_Microart.hash, Socket[MAIN_WEB_TASK].outBuf, 3) == 1) { // Ok?
+			SETBIT0(Logflags, fLog_HTTP_RelayError);
 			goto xSwitched;
 		} else {
-			if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: Error set R%d\n", idx + 1);
+			if(GETBIT(WR.Flags, WR_fLog) && !GETBIT(Logflags, fLog_HTTP_RelayError)) {
+				SETBIT1(Logflags, fLog_HTTP_RelayError);
+				journal.jprintf("WR: Error set R%d\n", idx + 1);
+			}
 		}
 	} else {
 		digitalWriteDirect(pin, On ? WR_RELAY_LEVEL_ON : !WR_RELAY_LEVEL_ON);
@@ -1125,13 +1166,16 @@ xSwitched:
 
 void WR_Change_Load_PWM(uint8_t idx, int16_t delta)
 {
-#ifdef PWM_ACCURATE_POWER
-	int MP = WR.LoadPower[idx] * HP.dSDM.get_voltage() / 220;
-#else
 	#define MP WR.LoadPower[idx]
-#endif
 	int n = WR_LoadRun[idx] + delta;
-	if(n <= 0) n = 0; else if(n > MP) n = MP;
+	if(n <= 0) n = 0;
+	else if(n >= MP) n = MP;
+#ifdef PWM_ACCURATE_POWER
+	else {
+		n = n * (220*220L) / (HP.dSDM.get_voltage()*HP.dSDM.get_voltage());
+		if(n > MP) n = MP;
+	}
+#endif
 	uint32_t t = rtcSAM3X8.unixtime();
 	if(WR.PWM_FullPowerTime) {
 		if(n > 0) {
@@ -1152,17 +1196,19 @@ void WR_Change_Load_PWM(uint8_t idx, int16_t delta)
 					if(WR_LoadRun[WR_Load_pins_Boiler_INDEX] > 0) {
 						PWM_Write(WR_Load_pins[WR_Load_pins_Boiler_INDEX], ((1<<PWM_WRITE_OUT_RESOLUTION)-1));
 						WR_SwitchTime[WR_Load_pins_Boiler_INDEX] = t;
+						WR_LoadRun[WR_Load_pins_Boiler_INDEX] = 0;
 						_delay(10); // 1/100 Hz
 					}
-					digitalWriteDirect(PIN_WR_Boiler_Substitution, 1);
+					digitalWriteDirect(PIN_WR_Boiler_Substitution, 1);	// to Substitution
 					_delay(WR_Boiler_Substitution_swtime);
 				} else if(idx == WR_Load_pins_Boiler_INDEX && digitalReadDirect(PIN_WR_Boiler_Substitution)) {
 					if(WR_LoadRun[WR_Boiler_Substitution_INDEX] > 0) {
 						PWM_Write(WR_Load_pins[WR_Boiler_Substitution_INDEX], ((1<<PWM_WRITE_OUT_RESOLUTION)-1));
 						WR_SwitchTime[WR_Boiler_Substitution_INDEX] = t;
+						WR_LoadRun[WR_Boiler_Substitution_INDEX] = 0;
 						_delay(10); // 1/100 Hz
 					}
-					digitalWriteDirect(PIN_WR_Boiler_Substitution, 0);
+					digitalWriteDirect(PIN_WR_Boiler_Substitution, 0); // to Boiler
 					_delay(WR_Boiler_Substitution_swtime);
 				}
 			}
@@ -1200,24 +1246,95 @@ inline int16_t WR_Adjust_PWM_delta(uint8_t idx, int16_t delta)
 // 0 - Oшибка, 1 - Нет свободной энергии, 2 - Нужна пауза, 3 - Есть свободная энергия
 int8_t WR_Check_MPPT(void)
 {
-	int err = Send_HTTP_Request(HTTP_MAP_Server, HTTP_MAP_Read_MPPT, 1);
+	int err = Send_HTTP_Request(HTTP_MAP_Server, WebSec_Microart.hash, HTTP_MAP_Read_MPPT, 1);
 	if(err) {
-		if(HP.get_testMode() != NORMAL) {
-#ifdef WR_PowerMeter_Modbus
-			return WR_PowerMeter_Power % 10;
-#else
-			return 3;
-#endif
+		if(WR_LastSunSign == 0) {
+			WR_MAP_Ubat = 0;
+			WR_LastSunPowerOut = 0;
+			WR_LastSunPowerOutCnt = 0;
 		}
-		if(GETBIT(WR.Flags, WR_fLogFull)) journal.jprintf("WR: MPPT request Error %d\n", err);
-		return 0;
+		if(testMode != NORMAL) {
+			return WR_LastSunSign = 3;
+		}
+		if(GETBIT(WR.Flags, WR_fLog) && !GETBIT(Logflags, fLog_HTTP_RelayError)) {
+			SETBIT1(Logflags, fLog_HTTP_RelayError);
+			journal.jprintf("WR: MPPT request Error %d\n", err);
+		}
+		return WR_LastSunSign = 0;
+	} else SETBIT0(Logflags, fLog_HTTP_RelayError);
+	char *fld = strstr(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_JSON_Vbat);
+	if(fld) {
+		char *fld2 = strchr(fld += sizeof(HTTP_MAP_JSON_Vbat) + 1, '"');
+		if(fld2) {
+			WR_MAP_Ubat = atoi(fld) * 10;
+			WR_MAP_Ubat += *(fld2 - 1) - '0';
+		}
+	} else {
+		if(WR_LastSunSign == 0) {
+			WR_MAP_Ubat = 0;
+			WR_LastSunPowerOut = 0;
+			WR_LastSunPowerOutCnt = 0;
+		}
+		return WR_LastSunSign = 0;
 	}
-	char *fld = strstr(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_JSON_Mode);
-	if(!fld) return 0;
-	if(*(fld + sizeof(HTTP_MAP_JSON_Mode) + 1) == 'S') return 2;
+	fld = strstr(fld, HTTP_MAP_JSON_P_Out);
+	if(!fld) return WR_LastSunSign = 0;
+	WR_LastSunPowerOut = strtol(fld + sizeof(HTTP_MAP_JSON_P_Out) + 1, NULL, 0);
+	fld = strstr(fld, HTTP_MAP_JSON_Mode);
+	if(!fld) return WR_LastSunSign = 0;
+	char _mode = *(fld + sizeof(HTTP_MAP_JSON_Mode) + 1);
+	if(_mode == 'i' || _mode == 'v') SETBIT1(WR_WorkFlags, WR_fWF_Charging_BAT); else SETBIT0(WR_WorkFlags, WR_fWF_Charging_BAT);
+	if(WR_LastSunPowerOut == 0 || WR_LastSunPowerOut < WR_Pnet) {
+		if(++WR_LastSunPowerOutCnt > 10) return WR_LastSunSign = 1;
+	} else WR_LastSunPowerOutCnt = 0;
+	if(_mode == 'S') return WR_LastSunSign = 2;
+#ifdef WR_CHECK_Vbat_INSTEAD_OF_MPPT_SIGN
+	return WR_LastSunSign = WR_MAP_Ubuf - WR_MAP_Ubat <= WR.DeltaUbatmin ? 3 : 1;
+#else
 	fld = strstr(fld, HTTP_MAP_JSON_Sign);
-	if(fld && *(fld + sizeof(HTTP_MAP_JSON_Sign) + 1) == '-') return 3;
-	return 1;
+	if(fld && *(fld + sizeof(HTTP_MAP_JSON_Sign) + 1) == '-') return WR_LastSunSign = 3;
+	return WR_LastSunSign = 1;
+#endif
+}
+#endif
+
+#ifdef HTTP_MAP_Read_MAP
+// Пррочитать данные напряжения АКБ MAP, возврат дельты Ubuf - Ubat, ошибка: -32768
+int16_t WR_Read_MAP(void)
+{
+	// Read MAP
+	int16_t retval = -32768;
+	int err = Send_HTTP_Request(HTTP_MAP_Server, WebSec_Microart.hash, HTTP_MAP_Read_MAP, 1);
+	if(err) {
+		if(GETBIT(WR.Flags, WR_fLog) && !GETBIT(Logflags, fLog_HTTP_RelayError)) {
+			SETBIT1(Logflags, fLog_HTTP_RelayError);
+			journal.jprintf("WR: HTTP request Error %d\n", err);
+		}
+	} else {
+		SETBIT0(Logflags, fLog_HTTP_RelayError);
+		char *fld = strstr(Socket[MAIN_WEB_TASK].outBuf, HTTP_MAP_JSON_Uacc);
+		if(!fld) {
+			if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: HTTP json wrong!\n");
+		} else {
+			char *fld2 = strchr(fld += sizeof(HTTP_MAP_JSON_Uacc) + 1, '"');
+			if(fld2) {
+				int16_t Vd = atoi(fld) * 10;
+				Vd += *(fld2 - 1) - '0';
+				char *fld = strstr(fld2, HTTP_MAP_JSON_Ubuf);
+				if(!fld) {
+					if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: HTTP json wrong!\n");
+				} else {
+					char *fld2 = strchr(fld += sizeof(HTTP_MAP_JSON_Ubuf) + 1, '"');
+					if(fld2) {
+						WR_MAP_Ubuf = atoi(fld) * 10;
+						WR_MAP_Ubuf += *(fld2 - 1) - '0';
+						retval = WR_MAP_Ubuf - Vd;
+					}
+				}
+			}
+		}
+	}
+	return retval;
 }
 #endif
 
@@ -1320,7 +1437,35 @@ void WR_Calc_Power_Array_Start(int8_t load_idx)
 	PWM_CalcFlags |= (1<<PWM_fCalcNow);
 #endif
 }
-#endif
+#endif //PWM_CALC_POWER_ARRAY
 
-#endif
+void WR_ReadPowerMeter(void)
+{
+	if(GETBIT(HP.Option.flags, fBackupPower)) {
+		WR_PowerMeter_Power = -1;
+		WR_PowerMeter_New = true;
+	} else {
+	#ifdef WR_PowerMeter_DDS238
+		int8_t i = Modbus.readInputRegisters16(WR_PowerMeter_Modbus, WR_PowerMeter_ModbusReg, (uint16_t*)&WR_PowerMeter_Power);
+	#else
+		int8_t i = Modbus.readInputRegisters32(WR_PowerMeter_Modbus, WR_PowerMeter_ModbusReg, (uint32_t*)&WR_PowerMeter_Power);
+	#endif
+		if(i == OK) {
+			WR_PowerMeter_Power /= 10;
+			WR_Error_Read_PowerMeter = 0;
+	#ifdef PWM_CALC_POWER_ARRAY
+			WR_Calc_Power_Array_NewMeter(WR_PowerMeter_Power);
+	#endif
+		} else {
+			if(WR_Error_Read_PowerMeter < 255) WR_Error_Read_PowerMeter++;
+			if(WR_Error_Read_PowerMeter == WR_Error_Read_PowerMeter_Max) {
+				WR_PowerMeter_Power = -1;
+				if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WR: Modbus read err %d\n", i);
+			}
+		}
+		WR_PowerMeter_New = true;
+	}
+}
+
+#endif //WATTROUTER
 

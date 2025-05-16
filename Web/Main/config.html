@@ -1,17 +1,20 @@
-<html>
-<head>
-	<title>Настройки теплового насоса. Народный контроллер ТН</title>
-	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<link rel="stylesheet" type="text/css" href="style.css">
-	<script type='text/javascript' src='scripts.js'></script>
-	<script type="text/javascript">
-		window.onload = function() {
-		loadParam("get_oHP(HIST),get_isRelay(RHEAT),get_oHP(TEMP_RHEAT),get_oHP(PUMP_WORK),get_oHP(PUMP_PAUSE),get_oHP(ATTEMPT),get_oHP(HEAT_list),get_oHP(BEEP),get_oHP(NXT),get_oHP(NXTS),get_oHP(NXTD),get_oHP(NXTW),get_oHP(WSPIF),get_oHP(LOGWS),get_oHP(PAUSE),get_oHP(TIME_CHART),get_oHP(CWCO),get_oHP(BPOW),get_oHP(MAXPOW),get_oHP(MCON),get_oHP(BPA),get_oHP(SW)");
-		loadParam("get_oHP(DLONP),get_oHP(DLOFP),get_oHP(DLSR),get_oHP(DLRS),get_oHP(DLTRV),get_oHP(DLBSW),get_oHP(DLBOFF),get_oHP(SDM_LOGER),get_oHP(TEMP_EVI),get_oHP(SAVE_ON),get_oHP(SGL1W_1),get_oHP(SGL1W_2),get_oHP(SGL1W_3),get_oHP(SGL1W_4),get_oHP(SCG),get_oHP(SCGT),get_oHP(GSC),get_oHP(STD),get_oHP(SGD),get_oHP(SCGO),get_oHP(STO),get_oHP(STF),get_oHP(SP),get_oHP(NGF)");
-		loadParam("get_oHP(WFS),get_oHP(WFT)");
-	}; 
-	</script>
+<html lang="ru"><head><title>Настройки теплового насоса. Народный контроллер ТН</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" type="text/css" href="style.css">
+<script type='text/javascript' src='scripts.js'></script>
+<script type="text/javascript">
+window.onload = function() {
+	loadParam("get_oHP(HIST),get_isRelay(RHEAT),get_oHP(TEMP_RHEAT),get_oHP(PUMP_WORK),get_oHP(PUMP_PAUSE),get_oHP(ATTEMPT),get_oHP(BEEP),get_oHP(NXT),get_oHP(NXTS),get_oHP(NXTD),get_oHP(NXTW),get_oHP(WSPIF),get_oHP(LOGWS),get_oHP(PAUSE),get_oHP(TIME_CHART),get_oHP(CWCO),get_oHP(BPOW),get_oHP(MAXPOW),get_oHP(MCON),get_oHP(BPA),get_oHP(SW),get_oHP(DSH)");
+	loadParam("get_oHP(DLONP),get_oHP(DLOFP),get_oHP(DLSR),get_oHP(DLRS),get_oHP(DLTRV),get_oHP(DLBSW),get_oHP(DLBOFF),get_oHP(SDM_LOGER),get_oHP(SAVE_ON),get_oHP(SGL1W_1),get_oHP(SGL1W_2),get_oHP(SGL1W_3),get_oHP(SGL1W_4),get_oHP(SCG),get_oHP(SCGT),get_oHP(STD),get_oHP(SGD),get_oHP(SCGO),get_oHP(STO),get_oHP(STF),get_oHP(SP),get_oHP(NGF),get_oHP(WMT)");
+	loadParam("get_oHP(WFS),get_oHP(WFT),get_oHP(ML),get_oHP(MP),get_oHP(DFTL),get_oHP(DFSDT),get_oHP(DFTS),get_oHP(DFTE),get_oHP(DLDON),get_oHP(DLDOFF),get_oHP(GST),get_oHP(AG),get_oHP(NL),get_oHP(MWL),get_oHP(WFH),get_oHP(RL),get_oHP(LE)");
+}; 
+function setTM(s) {
+	val = document.getElementById("get_ohp-" + s.toLowerCase()).value;
+	if(val[2] == ':') val = val.replace(":","").substr(0,3);
+	setParam("get_oHP(" + s + "=" + val + ")");
+}
+</script>
 </head>
 <body class="test">
 <div id="menu" class="menu"><script src='menu.js'></script></div>
@@ -19,13 +22,8 @@
 	<h1>Настройки теплового насоса <input type="submit" value="Записать в EEPROM"  onclick='loadParam("set_SAVE")'>
 	<input type="submit" value="?" onclick='location.assign("config-help.html")' style="float:none;"></h1>
 	<div class="row1">
-		<table>
-		<thead>
-		<tr>
-			<th>Описание</th>
-			<th>Значение</th>
-		</tr>
-		</thead>			
+		<table border="1" rules="rows">
+		<thead><tr><th>Описание</th><th>Значение</th></tr></thead>			
 		<tbody>
 		<tr>
 			<td>Расположение файлов веб-сервера на SPI Flash (иначе на SD карте)<sup>1</sup></td>
@@ -51,29 +49,6 @@
 		<tr>
 			<td>Запись истории на SD карту (раз в минуту) <sup>5</sup></td>
 			<td><input type="checkbox" id="get_ohp-hist" onChange="setParam('get_oHP(HIST)');">
-			</td>
-		</tr>
-		<tr>
-			<td><b>Настройки контура отопления</b></td>
-			<td></td>
-		</tr>
-		<tr>
-			<td>Использование дополнительного ТЭНа при нагреве отопления<sup>6</sup></td>
-			<td><select id="get_ohp-heat_list" onchange="setParam('get_oHP(HEAT_list)','get_ohp-heat_list');"></select></td>
-		</tr>
-		<tr>
-			<td>Температура для управления дополнительным ТЭНом °C [-30..30]</td>
-			<td nowrap><input id="get_ohp-temp_rheat" type="number" min="-30" max="30" step="0.1"> <input type="submit" value=">" onclick="setParam('get_oHP(TEMP_RHEAT)');">
-			</td>
-		</tr>
-		<tr>
-			<td>Работа насосов отопления, когда ТН в паузе (сек.) [0..65535] <sup>7</sup></td>
-			<td nowrap><input id="get_ohp-pump_work" type="number" min="0" step="1"> <input type="submit" value=">" onclick="setParam('get_oHP(PUMP_WORK)');">
-			</td>
-		</tr>
-		<tr>
-			<td>Период останова насосов отопления в паузе ТН (сек.) [0..65535] <sup>8</sup></td>
-			<td nowrap><input id="get_ohp-pump_pause" type="number" min="0" step="1"> <input type="submit" value=">" onclick="setParam('get_oHP(PUMP_PAUSE)');">
 			</td>
 		</tr>
 		<tr>
@@ -141,9 +116,9 @@
 		<tr>
 			<td>Задержка между переключением реверсивного клапана и включением компрессора (сек.) [0...600]</td>
 			<td nowrap><input type="number" id="get_ohp-dltrv"> <input type="submit" value=">" onclick="setParam('get_oHP(DLTRV)');"></td>
-		</tr>	
+		</tr>
 		<tr>
-			<td>Задержка выключения насоса отопления после выключения компрессора (сек.) [0...900]</td>
+			<td>Задержка выключения насоса отопления после останова компрессора по ошибке (сек.)</td>
 			<td nowrap><input type="number" id="get_ohp-dlofp"> <input type="submit" value=">" onclick="setParam('get_oHP(DLOFP)');"></td>
 		</tr>	
 		<tr>
@@ -154,13 +129,17 @@
 			<td>Время на сколько блокируются защиты при переходе с ГВС на отопление (сек.) [0...1200]</td>
 			<td nowrap><input type="number" id="get_ohp-dlboff"> <input type="submit" value=">" onclick="setParam('get_oHP(DLBOFF)');"></td>
 		</tr>
+		<tr>
+			<td>Время на запуск генератора (сек.)</td>
+			<td nowrap><input type="number" id="get_ohp-gst"> <input type="submit" value=">" onclick="setParam('get_oHP(GST)');"></td>
+		</tr>
 
 		<tr>
 			<td><b>Дополнительное оборудование</b></td>
 			<td></td>
 		</tr>
 		<tr>
-			<td>Работа ТН от резервного источника питания (генератор)<sup>9</sup></td>
+			<td>Работа ТН от резервного источника питания (генератор)<sup>6</sup></td>
 			<td><input type="checkbox" id="get_ohp-bpow" onchange="setParam('get_oHP(BPOW)');"></td>
 		</tr>
 		<tr>
@@ -168,11 +147,15 @@
 			<td><input type="checkbox" id="get_ohp-bpa" onchange="setParam('get_oHP(BPA)');"></td>
 		</tr>
 		<tr>
+			<td>Автоматический запуск генератора по специальному гистерезису</td>
+			<td><input type="checkbox" id="get_ohp-ag" onchange="setParam('get_oHP(AG)');"></td>
+		</tr>
+		<tr>
 			<td>Максимальная мощность потребления ТН от резервного источника питания (Вт) [0..10000]</td>
 			<td nowrap><input id="get_ohp-maxpow" type="number" min="0" step="1" value="0"> <input type="submit" value=">" onclick="setParam('get_oHP(MAXPOW)');"></td>
 		</tr>
 		<tr>
-			<td>Логировать не критичные ошибки электро-счетчика SDM</td>
+			<td>Логировать не критичные ошибки Modbus</td>
 			<td><input type="checkbox" id="get_ohp-sdm_loger" onchange="setParam('get_oHP(SDM_LOGER)');"></td>
 		</tr>	
 		<tr>
@@ -192,11 +175,15 @@
 			<td><input type="checkbox" id="get_ohp-nxtw" onchange="setParam('get_oHP(NXTW)');"></td>
 		</tr>	
 		<tr>
+			<td>Логировать в журнал обмен с дисплеем</td>
+			<td><input type="checkbox" id="get_ohp-nl" onchange="setParam('get_oHP(NL)');"></td>
+		</tr>	
+		<tr>
 			<td>Моргать дисплеем при работе от резервного питания</td>
 			<td><input type="checkbox" id="get_ohp-ngf" onchange="setParam('get_oHP(NGF)');"></td>
 		</tr>	
 		<tr>
-			<td>Время засыпания дисплея Nextion (мин.) [0..255] <sup>10</sup></td>
+			<td>Время засыпания дисплея Nextion (мин.) [0..255] <sup>7</sup></td>
 			<td nowrap><input id="get_ohp-nxts" type="number" min="0" step="1" value="0"> <input type="submit" value=">" onclick="setParam('get_oHP(NXTS)');"></td>
 		</tr>
 		<tr>
@@ -218,7 +205,35 @@
 		<tr>
 			<td>На четвертой шине 1-Wire только один датчик температуры</td>
 			<td><input type="checkbox" id="get_ohp-sgl1w_4" onchange="setParam('get_oHP(SGL1W_4)');"></td>
+		</tr>
+		<tr>
+			<td>Гистерезис температуры выключения ежесуточных реле °C</td>
+			<td nowrap><input type="number" id="get_ohp-dsh" step="0.1"> <input type="submit" value=">" onclick="setParam('get_oHP(DSH)');"></td>
 		</tr>	
+		<tr>
+			<td>Минимальная прогнозируемая температура по ощущению для использования прогноза °C</td>
+			<td nowrap><input type="number" id="get_ohp-wmt" step="1"> <input type="submit" value=">" onclick="setParam('get_oHP(WMT)');"></td>
+		</tr>	
+		<tr>
+			<td>Логировать modWork</td>
+			<td><input type="checkbox" id="get_ohp-mwl" onchange="setParam('get_oHP(MWL)');"></td>
+		</tr>	
+		<tr>
+			<td>Логировать доп. инфу по реле</td>
+			<td><input type="checkbox" id="get_ohp-rl" onchange="setParam('get_oHP(RL)');"></td>
+		</tr>	
+		<tr>
+			<td>Логировать потребленную энергию со счетчика при переходах тарифного плана и дня</td>
+			<td><input type="checkbox" id="get_ohp-le" onchange="setParam('get_oHP(LE)');"></td>
+		</tr>	
+		<tr>
+			<td><b>Внешние HTTP сервера</b></td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>Время получения прогноза погоды</td>
+			<td nowrap><input id="get_ohp-wfh" type="text" size="6"><input type="submit" value=">" onclick="setTM('WFH')"></td>
+		</tr>
 		<tr>
 			<td>Имя или адрес сервера погоды, работающего на API openweathermap.org</td>
 			<td nowrap><input id="get_ohp-wfs" type="text"> <input type="submit" value=">" onclick="setParam('get_oHP(WFS)')"></td>
@@ -227,6 +242,38 @@
 			<td>HTTP GET запрос на сервер погоды</td>
 			<td nowrap><input id="get_ohp-wft" type="text"> <input type="submit" value=">" onclick="setParam('get_oHP(WFT)')"></td>
 		</tr>
+		<tr>
+			<td>Пароль для сервера Микроарт Малина (логин: <span id="get_ohp-ml">-</span>)</td>
+			<td nowrap><input id="get_ohp-mp" type="password" maxlength="10"> <input type="submit" value=">" onclick="setParam('get_oHP(MP)')"></td>
+		</tr>
+		<tr>
+			<td><b>Настройки для ТН Воздух-Вода</b></td>
+			<td></td>
+		</tr>
+		<tr>
+			<td>Температура испарителя TEVAIN, ниже которой возможна разморозка, °C</td>
+			<td nowrap><input id="get_ohp-dftl" type="number" step="0.1" value="0"><input type="submit" value=">" onclick="setParam('get_oHP(DFTL)');"></td>
+		</tr>
+		<tr>
+			<td>Разница температур TOUT-TEVAIN больше которой начнется разморозка, °C</td>
+			<td nowrap><input id="get_ohp-dfsdt" type="number" step="0.1" value="0"><input type="submit" value=">" onclick="setParam('get_oHP(DFSDT)');"></td>
+		</tr>
+		<tr>
+			<td>Температура улицы TOUT ниже которой, размораживаем компрессором, иначе вентилятором, °C</td>
+			<td nowrap><input id="get_ohp-dfts" type="number" step="0.1" value="0"><input type="submit" value=">" onclick="setParam('get_oHP(DFTS)');"></td>
+		</tr>
+		<tr>
+			<td>Температура окончания разморозки, у датчика TEVAIN, °C</td>
+			<td nowrap><input id="get_ohp-dfte" type="number" step="0.1" value="0"><input type="submit" value=">" onclick="setParam('get_oHP(DFTE)');"></td>
+		</tr>
+		<tr>
+			<td>Задержка между наступлением условий разморозки и её началом, сек.</td>
+			<td nowrap><input type="number" id="get_ohp-dldon"><input type="submit" value=">" onclick="setParam('get_oHP(DLDON)');"></td>
+		</tr>	
+		<tr>
+			<td>Пауза после разморозки, сек.</td>
+			<td nowrap><input type="number" id="get_ohp-dldoff"><input type="submit" value=">" onclick="setParam('get_oHP(DLDOFF)');"></td>
+		</tr>
 	</tbody>
 	</table><br>
 	1. При неработающей веб морде, можно принудительно переключится на другой источник, используя запросы: IP/&set_oHP(WSPIF=1)&& - SPI Flash, IP/&set_oHP(WSPIF=0)&& - SD<br/>
@@ -234,11 +281,8 @@
 	3. При изменении периода графики обнуляются.<br/>
 	4. Не сохраняемая настройка (после сброса НК изменение флага будет сброшено).<br/>
 	5. Эти данные будут использованы для пострения графиков в Истории. Первоначальное создание файла занимает до 5 минут, веб сервер при этом не работает.<br/>
-	6. Reserve - ТЭН включается если температура в доме ниже заданной, bivalent - ТЭН включится если уличная температура ниже заданной<br/>
-	7. Установка 0 - насос вообще не работает<br/>
-	8. Установка 0 - насос работает непрерывно<br/>
-	9. В режиме работы от резервного источника питания происходит ограничение потребляемой мощности ТН, не включается электрокотел, ежесуточные реле. Дополнительно можно отключить нагрев ГВС с помощью ТЭНов (ОТОПЛЕНИЕ И ГВС->ГВС->Греть от генератора без ТЭНа).<br/>
-	10. 0 - дисплей Nextion не выключается<br/>
+	6. В режиме работы от резервного источника питания происходит ограничение потребляемой мощности ТН, не включается электрокотел, ежесуточные реле. Дополнительно можно отключить нагрев ГВС с помощью ТЭНов (ОТОПЛЕНИЕ И ГВС->ГВС->Греть от генератора без ТЭНа).<br/>
+	7. 0 - дисплей Nextion не выключается<br/>
 	<br>
 	<input type="submit" value="Сброс настроек HP" onclick='if(document.getElementById("reset_code").value=="RESET") loadParam("RESET_SETTINGS");'> Введите RESET: <input id="reset_code" size="7">
 	<br>

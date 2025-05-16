@@ -31,11 +31,12 @@
 
 // Флаги датчиков (единые для всех датчиков!!!!!)
 #define fPresent      0               // флаг наличие датчика
-#define fTest         1               // флаг режим теста
+#define fActive       1               // флаг активности (для sensorTemp - идет нагрев по этому датчику)
 #define fFull         2               // флаг полного буфера для усреднения
 #define fAddress      3               // флаг правильного адреса для температурного датчика
 #define fcheckRange	  4				  // флаг Проверка граничного значения
 #define fsensModbus	  5				  // флаг дистанционного датчика по Modbus
+#define fErrorWasSend 6               // Флаг, что сообщение отослано
 
 extern RTC_clock rtcSAM3X8;
 extern void set_Error(int8_t err, char *nam);
@@ -71,8 +72,6 @@ class sensorADC
     int8_t  set_testValue(int16_t p);                    // Установить значение датчика в режиме теста
     int8_t  set_minValue(int16_t p) { cfg.minValue = p; return OK; }
     int8_t  set_maxValue(int16_t p)  { cfg.maxValue = p; return OK; }
-    TEST_MODE get_testMode(){return testMode;}           // Получить текущий режим работы
-    void    set_testMode(TEST_MODE t){testMode=t;}       // Установить значение текущий режим работы
      
     char*   get_note(){return note;}                     // Получить наименование датчика
     char*   get_name(){return name;}                     // Получить имя датчика
@@ -100,7 +99,6 @@ class sensorADC
 		int16_t minValue;                                // минимально разрешенное значение
 		int16_t maxValue;                                // максимально разрешенное значение
     } __attribute__((packed)) cfg;// Save Group end
-    TEST_MODE testMode;                                  // Значение режима тестирования
     uint16_t lastADC;                                    // Последние значение отсчета ацп
        
     uint8_t pin;                                         // Канал АЦП (AD*) куда прицеплен датчик
@@ -139,8 +137,6 @@ public:
   char*   get_name(){return name;}                       // Получить имя датчика
   boolean get_testInput(){return testInput;}             // Получить Состояние датчика в режиме теста
   int8_t  set_testInput(int16_t i);                      // Установить Состояние датчика в режиме теста
-  TEST_MODE get_testMode(){return testMode;}             // Получить текущий режим работы
-  void  set_testMode(TEST_MODE t){testMode=t;}           // Установить значение текущий режим работы
   boolean get_alarmInput(){return alarmInput;}           // Состояние аварии датчика
   boolean is_alarm() { return Input == alarmInput; }	// Датчик сработал?
   int8_t  set_alarmInput(int16_t i);                     // Установить Состояние аварии датчика
@@ -156,7 +152,6 @@ private:
    boolean testInput;                                    // !save! Состояние датчика в режиме теста
    boolean alarmInput;                                   // !save! Состояние датчика в режиме аварии
    } __attribute__((packed));// Save Group end, last alarmInput
-   TEST_MODE testMode;                                   // Значение режима тестирования
    TYPE_SENSOR type;                                     // Тип датчика
    int8_t err;                                           // ошибка датчика (работа) при ошибке останов ТН
    byte flags;                                           // флаги  датчика
@@ -195,8 +190,6 @@ public:
   void    set_kfValue(uint16_t f) { kfValue=f; }         // Установить коэффициент пересчета
   uint16_t get_Capacity(){return Capacity;}              // Получить теплоемкость
   int8_t set_Capacity(uint16_t c);                       // Установить теплоемкость больше 5000 не устанавливается
-  TEST_MODE get_testMode(){return testMode;}             // Получить текущий режим работы
-  void  set_testMode(TEST_MODE t){testMode=t;}           // Установить значение текущий режим работы
   inline int8_t  get_pinF(){return pin;}                 // Получить ногу куда прицеплен датчик
   uint8_t *get_save_addr(void) { return (uint8_t *)&number; } // Адрес структуры сохранения
   uint16_t get_save_size(void) { return (byte*)&Capacity - (byte*)&number + sizeof(Capacity); } // Размер структуры сохранения
@@ -212,7 +205,6 @@ private:
    uint8_t  minValue;							     	 // десятые m3/h (0..25,5)
    uint16_t Capacity;                                    // значение теплоемкости теплоносителя в конутре где установлен датчик [Cp, Дж/(кг·град)]
    } __attribute__((packed));// END SAVE GROUP, Capacity the last
-   TEST_MODE testMode;                                   // Значение режима тестирования
    volatile uint16_t count;                              // число импульсов за базовый период (то что меняется в прерывании)
    uint32_t sTime;                                       // время начала базового периода в тиках
    int8_t err;                                           // ошибка датчика (работа) при ошибке останов ТН
@@ -246,13 +238,10 @@ public:
   char*   get_note(){return note;}                       // Получить наименование реле
   char*   get_name(){return name;}                       // Получить имя реле
   __attribute__((always_inline)) inline boolean get_present(){return GETBIT(flags,fPresent);} // Наличие датчика в текущей конфигурации
-  TEST_MODE get_testMode(){return testMode;}             // Получить текущий режим работы
-  void set_testMode(TEST_MODE t){testMode=t;}            // Установить значение текущий режим работы
   byte flags;                                           // флаги  0 - наличие реле, 1.. - fR_Status*
 private:
    uint8_t number;										// Номер массива реле
    boolean Relay;                                        // Состояние реле
-   TEST_MODE testMode;                                   // Значение режима тестирования
    uint8_t  pin;                                         // Ножка куда прицеплено реле
    char *note;                                           // наименование реле
    char *name;                                           // Имя реле
@@ -321,6 +310,10 @@ public:
 	uint8_t get_DelayStartPos() {return _data.DelayStartPos;}
 	uint16_t get_StartPos();
 	uint16_t get_BoilerStartPos() { return (uint32_t)_data.maxSteps * _data.BoilerStartPos / 100; };
+	int16_t get_FromHeatToBoilerMove() { return (int32_t)_data.maxSteps * _data.FromHeatToBoilerMove / 1000; };
+#ifdef DEFROST
+	uint16_t get_defrostPos(){ return _data.defrostPos; }
+#endif
 
 	char*   get_note(){ return note;}                      // Прочитать описание ЭРВ
 	char*   get_name(){ return name;}                      // Прочитать имя ЭРВ
@@ -329,9 +322,6 @@ public:
 	int16_t get_minEEV(){return  _data.minSteps;}          // Число шагов при котором ЭРВ начинает открываться (холостой ход) может быть равным 0
 	int16_t get_maxEEV(){return  _data.maxSteps;}          // Максимальное число шагов ЭРВ (диапазон)
 	__attribute__((always_inline)) inline boolean get_present(){return GETBIT(_data.flags,fPresent);} // Наличие EEV в текущей конфигурации
-
-	TEST_MODE get_testMode(){return testMode;}             // Получить текущий режим работы
-	void set_testMode(TEST_MODE t){testMode=t;}            // Установить значение текущий режим работы
 
 	// Сохранение
 	uint8_t *get_save_addr(void) { return (uint8_t *)&_data; } // Адрес структуры сохранения
@@ -342,8 +332,8 @@ public:
 	StepMotor stepperEEV;                                  // Шаговый двигатель ЭРВ
 	boolean setZero;                                       // признак ПРОЦЕССА обнуления EEV;
 	int16_t EEV;                                           // Текущая  АБСОЛЮТНАЯ позиция, шаги
-	int16_t OverheatTCOMP;							    	// перегрев TCOMPIN-T[PEVA]
-	PID_WORK_STRUCT pidw;  								    // переменные пид регулятора
+	int16_t OverheatTCOMP;								// перегрев TCOMPIN-T[PEVA]
+	PID_WORK_STRUCT pidw;  								// переменные пид регулятора
 
 private:
 	boolean fPause;                                        // пауза алгоритма отслеживания true
@@ -354,9 +344,8 @@ private:
 	int16_t Overheat;                                    // Перегрев текущий (сотые градуса)
 	int16_t OHCor_tdelta;								 // Расчитанная целевая дельта Нагнетание-Конденсации
 	int16_t OHCor_tdelta_prev;							 // Расчитанная целевая дельта Нагнетание-Конденсации
-	TEST_MODE testMode;                                  // Значение режима тестирования
 	int8_t  err;                                         // ошибка ЭРВ (работа) при ошибке останов ТН
-	bool DebugToLog;                                     // Выводить отладочную иинформацию в журнал
+	bool DebugToLog;
 
 	char *note;                                          // Описание
 	char *name;                                          // Имя
@@ -395,10 +384,14 @@ private:
 		int16_t  tOverheatTCOMP;				// Целевой перегрев2 TCOMPIN-T[PEVA]
 		int16_t  tOverheatTCOMP_delta;			// Дельта целевого перегрева2 TCOMPIN-T[PEVA]
 		int8_t   trend_threshold;				// Порог детектирования тренда
-		uint8_t  _RESERVED_;
+		int8_t   FromHeatToBoilerMove;			// Минимальная корректировка при переходе с Отопление на Бойлер, десятые %
 		uint16_t trend_mul_threshold;			// Порог для *2, сотые градуса
 		int16_t  tOverheat2_low;				// Нижняя граница перегрева 2 для быстрого закрытия ЭРВ
 		int16_t  tOverheat2_low_hyst;			// Гистерезис для tOverheat2_low
+		uint8_t  mul_fast;						// Множитель при быстром изменении перегрева, десятые
+#ifdef DEFROST
+		uint16_t defrostPos;					// Позиция при разморозке
+#endif
 	} _data;                                    // Конец структуры для сохранения настроек
 };
 
@@ -419,13 +412,14 @@ const char *noteFC_NO   = {" связь по Modbus потеряна, инвер
 const char *noteFC_NONE = {" отсутствует в данной конфигурации" };
 
 
-// Класс Электрический счетчик SDM -----------------------------------------------------------------------------------------------
-const char *noteSDM = {"Электрический счетчик с Modbus"};       // Описание счетчика
+// Класс Электрический счетчик -----------------------------------------------------------------------------------------------
+const char *noteSDM = {"Электрический счетчик"};       // Описание счетчика
 const char *noteSDM_NONE = {"Отсутствует в конфигурации"};      //
 
 // Флаги Электросчетчика
-#define fSDM           0              // флаг наличие счетчика
-#define fSDMLink       1              // флаг связь установлена
+#define fSDM				0			// флаг наличие счетчика
+#define fSDMLink			1			// флаг связь установлена
+#define fSDM_LogErrorOff	2			// Не логировать ошибку
 
 // Структура для хранения настроек счетчика
 struct type_settingSDM
@@ -436,7 +430,8 @@ uint16_t maxPower;                      // максимальная мощнос
 };
 // Input register Function code 04 to read input parameters:
 #ifdef USE_PZEM004T	// Использовать PZEM-004T v3 Modbus (UART)
-	const char *nameSDM = {"PZEM-004"};         // Имя счетчика
+	#define USE_NOT_SDM_METER
+	const char *nameSDM = {"PZEM-004T"};         // Имя счетчика
 	#define SDM_VOLTAGE          0x0000			// int16, 0.1V
 	#define SDM_CURRENT          0x0001			// int32, 0.001A
 	#define SDM_AC_POWER         0x0003			// int32, 0.1W
@@ -449,7 +444,23 @@ uint16_t maxPower;                      // максимальная мощнос
 	#define SDM_MODBUS_ADDR      0x0002			// 1..F7
 	// Special command
 	#define PWM_RESET_ENERGY	 0x42
-#else                                      // Регистры однофазного счетчика sdm120
+#endif
+#ifdef USE_DDS238	// Использовать Hiking DDS238-2 ZN/S RS485
+	#define USE_NOT_SDM_METER
+	const char *nameSDM = {"DDS238-2"};         // Имя счетчика
+	#define SDM_AC_ENERGY        0x0000			// uint32, 0.01kWh
+	// Export Energy 	         0x0008  		// uint32, 0.01kWh
+	// Import Energy 	         0x000A  		// uint32, 0.01kWh
+	#define SDM_VOLTAGE          0x000C			// uint16, 0.1V
+	#define SDM_CURRENT          0x000D			// uint16, 0.01A
+	#define SDM_AC_POWER         0x000E			// int16, 1W
+	#define SDM_RE_POWER         0x000F			// int16, 1VAr
+	#define SDM_POW_FACTOR       0x0010			// uint16, 0.001
+	#define SDM_FREQUENCY        0x0011			// uint16, 0.01Hz
+	// Address (Hi byte), Baundrate (Low byte) 0x0015  // Baundrate: 1 - 9600, 2 - 4800, 3 - 2400, 4 - 1200 (write multiple registers #16)
+	// Relay out                 0x001A			// uint16, 0/1
+#endif
+#ifndef USE_NOT_SDM_METER   // Регистры однофазного счетчика sdm*
   #ifdef USE_SDM630    // Регистры 3-х фазного счетчика SDM630.
 	const char *nameSDM = {"SDM630"};                               // Имя счетчика
 	// Адрес уже уменьшен на 1
@@ -521,7 +532,7 @@ class devSDM
   private:
       int8_t  err;                                     // ошибка стесчика (работа)
       uint16_t numErr;                                 // число ошибок чтение по модбасу
-      byte flags;                                      // флаги  0 - наличие счетчика,
+      byte flags;                                      // флаги: fSDM*
        // Управление по 485
       int32_t AcPower;                                 // активная мощность, Вт
       int16_t Voltage;                                 // Напряжение, V
@@ -554,11 +565,11 @@ class devModbus
     #endif
     int8_t writeHoldingRegisters32(uint8_t id,uint16_t cmd, uint32_t data); // Записать 2 регистра подряд возвращает код ошибки
     int8_t get_err() {return err;}                                                         // Получить код ошибки
+    ModbusMaster RS485;                     // Класс модбас 485
 private:
     // Переменные
     int8_t flags;                           // Флаги
     int8_t err;                             // Ошибки модбас
-    ModbusMaster RS485;                     // Класс модбас 485
     int8_t translateErr(uint8_t result);    // Перевод ошибки протокола Модбас в ошибки ТН
   }; // End class
 

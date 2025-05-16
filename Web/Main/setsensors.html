@@ -1,4 +1,4 @@
-<html>
+<html lang="ru">
 <head>
 	<title>Привязка Датчиков. Народный контроллер ТН</title>
 	<meta charset="utf-8" />
@@ -23,9 +23,9 @@
 <div class="content">
 	<h1>Привязка датчиков  <input type="submit" value="Записать в EEPROM"  onclick='loadParam("set_SAVE")'></h1>
 	<div class="row1" id="temps">
-		<h2>Сканирование шины OneWire [ <span id="get_onewirepin"></span> ] <button id="scan" onclick='ScanOneWire();'>Сканировать</button></h2>
+		<h2>Сканирование шин [ <span id="get_onewirepin"></span> ] <button id="scan" onclick='ScanOneWire();'>Сканировать</button></h2>
 		<p>Сканирование датчиков производится при выключенном тепловом насосе! Максимальное время сканирования 9 секунд. </p>
-		<table>
+		<table border="1" rules="rows">
 		<thead>
 		<tr>
 			<th>Номер</th>
@@ -43,7 +43,7 @@
 	</div>
 	<div class="row1" id="temps">
 		<h2>Датчики системы</h2>
-		<table id="scan_table">
+		<table id="scan_table" border="1" rules="rows">
 		<thead>
 		<tr>
 			<th>Имя</th>

@@ -55,12 +55,12 @@ void Message::initMessage(uint8_t web_task)
   //  rtcSAM3X8.set_alarmtime(11, 17, 0);                                              // завести будильник для отправки сигнала жизни
   //  rtcSAM3X8.attachalarm(life_signal);
 
-  strcpy(messageSetting.smtp_server, "smtp-devices.yandex.ru");                    // Адрес сервера без SSL/TSL
+  strcpy(messageSetting.smtp_server, "mail.smtp2go.com");                          // Адрес сервера без SSL/TSL
   messageSetting.smtp_serverIP = zeroIP;                                           // сделать адрес 0.0.0.0
   messageSetting.smtp_port = 25;                                                   // Адрес порта сервера
   strcpy(messageSetting.smtp_login, "login");                                      // логин сервера если включена авторизация
   strcpy(messageSetting.smtp_password, "password");                                // пароль сервера если включена авторизация
-  strcpy(messageSetting.smtp_MailTo, "MK@home");                                   // адрес отправителя
+  strcpy(messageSetting.smtp_MailTo, "MK@home.net");                               // адрес отправителя
   strcpy(messageSetting.smtp_RCPTTo, "");                                          // адрес получателя
 
   messageSetting.sms_service = pSMS_RU;                                            // Cервис отправки смс по умолчанию sms.ru
@@ -240,7 +240,7 @@ boolean Message::set_messageSetting(char *var, char *c)
   } else return false;
 
 }
-// Получить параметр Уведомления по имени var, результат ДОБАВОЯЕТСЯ в строку ret
+// Получить параметр Уведомления по имени var, результат ДОБАВЛЯЕТСЯ в строку ret
 char* Message::get_messageSetting(char *var, char *ret)
 {
 	if(strcmp(var, mess_MAIL) == 0) {
@@ -380,7 +380,7 @@ boolean  Message::SendCommandSMTP(char *c, boolean wait)
 
   if (!clientMessage.connected())  // если клиент не соединен то это ошибка выходим
   {
-    JOURNAL("Server no connected, abort send mail???\n");
+	if(!GETBIT(WorkFlags, fWF_MessageSendError)) journal.jprintf("Server no connected, abort send mail\n");
     return false;
   }
 
@@ -459,22 +459,23 @@ boolean  Message::SendCommandSMTP(char *c, boolean wait)
 // Установить уведомление (сформировать для отправки но НЕ ОТПРАВЛЯТЬ)
 // Проверяется необходимость отправки уведомления в зависимости от установленных флагов
 // true - сообщение принято (или запрещено), false - сообщение отвергнуто т.к оно уже посылалось (дубль) или внутренняя ошибка
-boolean Message::setMessage(MESSAGE ms, char *c, int p1) // может запускаться из любого потока!!
+bool Message::setMessage(MESSAGE ms, char *c, int p1) // может запускаться из любого потока!!
 {
   // Проверка на необходимость посылки сообщения
-  if (!(((GETBIT(messageSetting.flags, fMail)) || (GETBIT(messageSetting.flags, fSMS))) && ((messageData.ms != pMESSAGE_TESTMAIL) || (messageData.ms != pMESSAGE_TESTSMS)))) return true;	// посылать ненадо
+  if (!(((GETBIT(messageSetting.flags, fMail)) || (GETBIT(messageSetting.flags, fSMS))) && ((messageData.ms != pMESSAGE_TESTMAIL) || (messageData.ms != pMESSAGE_TESTSMS)))) return false;	// посылать ненадо
+  if(waitSend) return false; // Есть активное сообщение - ждем отправку
   //  SerialDbg.print(c);SerialDbg.print(" : ");SerialDbg.print(ms);SerialDbg.println("-5");
   // Проверка необходимости отправки уведомления
-  if (((GETBIT(messageSetting.flags, fMessageReset)) == 0) && (ms == pMESSAGE_RESET))       return true; // Попытка отправить не разрешенное сообщение, выходим без ошибок
-  if (((GETBIT(messageSetting.flags, fMessageError)) == 0) && (ms == pMESSAGE_ERROR))       return true;
-  if (((GETBIT(messageSetting.flags, fMessageLife)) == 0) && (ms == pMESSAGE_LIFE))         return true;
-  if (((GETBIT(messageSetting.flags, fMessageTemp)) == 0) && (ms == pMESSAGE_TEMP))         return true;
-  if (((GETBIT(messageSetting.flags, fMessageSD)) == 0) && (ms == pMESSAGE_SD))             return true;
-  if (((GETBIT(messageSetting.flags, fMessageWarning)) == 0) && (ms == pMESSAGE_WARNING))   return true;
-  // else if (((messageSetting.GETBIT(fMessageTemp))&&(ms==pMESSAGE_TEMP))&&((sTemp[TIN].get_Temp()<messageSetting.mTIN)||(sTemp[TBOILER].get_Temp()<messageSetting.mTBOILER)||(sTemp[TCOMP].get_Temp()>messageSetting.mTCOMP)))  return true;  // выходим, температуры в границах!!
+  if (((GETBIT(messageSetting.flags, fMessageReset)) == 0) && (ms == pMESSAGE_RESET))       return false; // Попытка отправить не разрешенное сообщение
+  if (((GETBIT(messageSetting.flags, fMessageError)) == 0) && (ms == pMESSAGE_ERROR))       return false;
+  if (((GETBIT(messageSetting.flags, fMessageLife)) == 0) && (ms == pMESSAGE_LIFE))         return false;
+  if (((GETBIT(messageSetting.flags, fMessageTemp)) == 0) && (ms == pMESSAGE_TEMP))         return false;
+  if (((GETBIT(messageSetting.flags, fMessageSD)) == 0) && (ms == pMESSAGE_SD))             return false;
+  if (((GETBIT(messageSetting.flags, fMessageWarning)) == 0) && (ms == pMESSAGE_WARNING))   return false;
+  // else if (((messageSetting.GETBIT(fMessageTemp))&&(ms==pMESSAGE_TEMP))&&((sTemp[TIN].get_Temp()<messageSetting.mTIN)||(sTemp[TBOILER].get_Temp()<messageSetting.mTBOILER)||(sTemp[TCOMP].get_Temp()>messageSetting.mTCOMP)))  return false;  // выходим, температуры в границах!!
 
   // Проверка на дублирование сообщения. Тестовые сообщения и сообщения жизни  можно посылать многократно  подряд
-  if ((rtcSAM3X8.unixtime() - sendTime < REPEAT_TIME) && (messageData.ms == ms) && ((ms != pMESSAGE_TESTMAIL) && (ms != pMESSAGE_TESTSMS) && (ms != pMESSAGE_LIFE))) //дублирующие сообщения полылаются с интервалом
+  if ((rtcSAM3X8.unixtime() - sendTime < REPEAT_TIME) && (messageData.ms == ms) && ((ms != pMESSAGE_TESTMAIL) && (ms != pMESSAGE_TESTSMS) && (ms != pMESSAGE_LIFE))) //дублирующие сообщения поcылаются с интервалом
   {
     //JOURNAL("Ignore repeat msg: #%d\n", ms);
     return false;
@@ -487,13 +488,22 @@ boolean Message::setMessage(MESSAGE ms, char *c, int p1) // может запу�
   sendTime = rtcSAM3X8.unixtime(); // запомнить время отправки
   strcpy(messageData.data, c);
   // в сообщение pMESSAGE_TEMP добавить значение температуры
-  if (ms == pMESSAGE_TEMP) {
+  if(ms == pMESSAGE_TEMP) {
     strcat(messageData.data, " t=");
     _dtoa(messageData.data, p1, 2);
+  } else if(p1){
+	  strcat(messageData.data, " ");
+	  _itoa(p1, messageData.data);
   }
   messageData.p1 = p1;
   waitSend = true;                // выставить флаг необходимости отправки Уведомления
   return true;
+}
+
+// Добавить текст в конец уведомления
+void Message::setMessage_add_text(char *c)
+{
+	strcat(messageData.data, c);
 }
 
 // Установить (сформировать) тестовое письмо, отправка sendMessage();
@@ -529,14 +539,14 @@ boolean Message::sendMessage()  // запуск из 0 потока
     {
       // Отправка удачна
       for (i = 0; i < strlen(retMail); i++) if (retMail[i] == '=') retMail[i] = ':'; // замена знака = на : т.к. это запрещенный знак в запросах
-      strcpy(retTest, "Тестовое письмо отправлено на "); get_messageSetting((char*)mess_SMTP_RCPTTO, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMTP_RCPTTO));
+      strcpy(retTest, "Письмо отправлено на "); get_messageSetting((char*)mess_SMTP_RCPTTO, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMTP_RCPTTO));
       strcat(retTest, "\nОтвет: "); strcat(retTest, retMail);
     }
     else
     {
       // Отправка не удачна
       for (i = 0; i < strlen(retMail); i++) if (retMail[i] == '=') retMail[i] = ':'; // замена знака = на : т.к. это запрещенный знак в запросах
-      strcpy(retTest, "Тестовое письмо НЕ отправлено на "); get_messageSetting((char*)mess_SMTP_RCPTTO, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMTP_RCPTTO));
+      strcpy(retTest, "Письмо НЕ отправлено на "); get_messageSetting((char*)mess_SMTP_RCPTTO, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMTP_RCPTTO));
       strcat(retTest, "\nОтвет: "); strcat(retTest, retMail);
     }
   }
@@ -553,12 +563,12 @@ boolean Message::sendMessage()  // запуск из 0 потока
       case pSMS_RU:
         if (sendSMS())
         { // Удачно
-          strcpy(retTest, "Тестовое SMS отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
+          strcpy(retTest, "SMS отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
           strcat(retTest, "\nОтвет: "); strcat(retTest, retSMS);
         }
         else
         { // Не удачно
-          strcpy(retTest, "Тестовое SMS НЕ отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
+          strcpy(retTest, "SMS НЕ отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
           strcat(retTest, "\nОтвет: "); strcat(retTest, retSMS);
         }
         break;
@@ -566,12 +576,12 @@ boolean Message::sendMessage()  // запуск из 0 потока
       case pSMSC_RU:
         if (sendSMSC())
         { // Удачно
-          strcpy(retTest, "Тестовое SMS отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
+          strcpy(retTest, "SMS отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
           strcat(retTest, "\nОтвет: "); strcat(retTest, retSMS);
         }
         else
         { // Не удачно
-          strcpy(retTest, "Тестовое SMS НЕ отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
+          strcpy(retTest, "SMS НЕ отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
           strcat(retTest, "\nОтвет: "); strcat(retTest, retSMS);
         }
         break;
@@ -579,12 +589,12 @@ boolean Message::sendMessage()  // запуск из 0 потока
       case pSMSC_UA:
         if (sendSMSC())
         { // Удачно
-          strcpy(retTest, "Тестовое SMS отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
+          strcpy(retTest, "SMS отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
           strcat(retTest, "\nОтвет: "); strcat(retTest, retSMS);
         }
         else
         { // Не удачно
-          strcpy(retTest, "Тестовое SMS НЕ отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
+          strcpy(retTest, "SMS НЕ отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
           strcat(retTest, "\nОтвет: "); strcat(retTest, retSMS);
         }
         break;
@@ -592,12 +602,12 @@ boolean Message::sendMessage()  // запуск из 0 потока
       case pSMSCLUB:
         if (sendSMSCLUB())
         { // Удачно
-          strcpy(retTest, "Тестовое SMS отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
+          strcpy(retTest, "SMS отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
           strcat(retTest, "\nОтвет: "); strcat(retTest, retSMS);
         }
         else
         { // Не удачно
-          strcpy(retTest, "Тестовое SMS НЕ отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
+          strcpy(retTest, "SMS НЕ отправлено на номер "); get_messageSetting((char*)mess_SMS_PHONE, retTest); //strcat(retTest,HP.message.get_messageSetting(pSMS_PHONE));
           strcat(retTest, "\nОтвет: "); strcat(retTest, retSMS);
         }
         break;
@@ -631,15 +641,18 @@ boolean Message::sendMail()
 		strncpy(retMail, "No connect", LEN_RETMAIL);
 		SETBIT1(WorkFlags, fWF_MessageSendError);
 		SemaphoreGive (xWebThreadSemaphore);
+		dnsUpadateSMTP = true;
 		return false;
 	}
 
 	// 2. Общение с сервером, получаем приветствие при соединении
 	if(!SendCommandSMTP((char*) "", true)) {
+		if(!GETBIT(WorkFlags, fWF_MessageSendError)) journal.jprintf("Error send mail to %s\n", messageSetting.smtp_server);
 		if(strlen(retMail) == 0) strncpy(retMail, (char*) "No answer", LEN_RETMAIL);
 		clientMessage.stop();  // ответ содержит ошибки
 		SETBIT1(WorkFlags, fWF_MessageSendError);
 		SemaphoreGive (xWebThreadSemaphore);
+		dnsUpadateSMTP = true;
 		return false;
 	}
 	// 3. Авторизация
@@ -649,12 +662,14 @@ boolean Message::sendMail()
 			clientMessage.stop();  // ответ содержит ошибки
 			SETBIT1(WorkFlags, fWF_MessageSendError);
 			SemaphoreGive (xWebThreadSemaphore);
+			dnsUpadateSMTP = true;
 			return false;
 		}
 		if(!SendCommandSMTP((char*) "AUTH LOGIN", true)) {
 			clientMessage.stop();  // ответ содержит ошибки
 			SETBIT1(WorkFlags, fWF_MessageSendError);
 			SemaphoreGive (xWebThreadSemaphore);
+			dnsUpadateSMTP = true;
 			return false;
 		}
 		strcpy(tempBuf, "");
@@ -663,6 +678,7 @@ boolean Message::sendMail()
 			clientMessage.stop();  // ответ содержит ошибки
 			SETBIT1(WorkFlags, fWF_MessageSendError);
 			SemaphoreGive (xWebThreadSemaphore);
+			dnsUpadateSMTP = true;
 			return false;
 		}
 		strcpy(tempBuf, "");
@@ -671,6 +687,7 @@ boolean Message::sendMail()
 			clientMessage.stop();  // ответ содержит ошибки
 			SETBIT1(WorkFlags, fWF_MessageSendError);
 			SemaphoreGive (xWebThreadSemaphore);
+			dnsUpadateSMTP = true;
 			return false;
 		}
 	} else                                                               // Авторизация не требуется
@@ -679,6 +696,7 @@ boolean Message::sendMail()
 			clientMessage.stop();  // ответ содержит ошибки
 			SETBIT1(WorkFlags, fWF_MessageSendError);
 			SemaphoreGive (xWebThreadSemaphore);
+			dnsUpadateSMTP = true;
 			return false;
 		}
 	}

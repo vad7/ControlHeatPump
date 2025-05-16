@@ -1,4 +1,4 @@
-<html>
+<html lang="ru">
 <head> 
 	<title>Реле. Народный контроллер ТН</title>
 	<meta charset="utf-8" />
@@ -14,32 +14,18 @@
 <body class="actuators relay">
 <div id="menu" class="menu"><script src="menu.js"></script></div>
 <div class="content">
-	<h1>Реле <input type="submit" value="Записать в EEPROM"  onclick='loadParam("set_SAVE")'></h1>
 	<div class="row1">
-		<table>
-		<thead>
-		<tr>
-			<th width="20%">Имя</th>
-			<th width="30%">Описание</th>
-			<th>Состояние</th>
-			<th>Pin</th>
-		</tr>
-		</thead>
-		<tbody id="get_tblrelay">
-		</tbody>
+	<h1>Реле <input type="submit" value="Записать в EEPROM"  onclick='loadParam("set_SAVE")'></h1>
+	<table border="1" rules="rows">
+		<thead><tr><th width="20%">Имя</th><th width="30%">Описание</th><th width="10%">Состояние</th><th width="40%">Pin</th></tr></thead>
+		<tbody id="get_tblrelay"></tbody>
 	</table>		
 	</div>		
 	<div class="row1">
-		<h2>Корректировка электрической мощности</h2>
-		<table>
-		<thead>
-		<tr>
-			<th width="20%">Имя</th>
-			<th>Добавить, Вт</th>
-		</tr>
-		</thead>
-		<tbody id="get_tblpwrc">
-		</tbody>
+	<h2>Корректировка электрической мощности</h2>
+	<table border="1" rules="rows">
+		<thead><tr><th width="20%">Имя</th><th>Добавить, Вт</th></tr></thead>
+		<tbody id="get_tblpwrc"></tbody>
 	</table>		
 	</div>		
 </div>

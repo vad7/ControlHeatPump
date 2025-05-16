@@ -29,7 +29,8 @@ enum TEMP_SETUP_FLAGS { // bit #
 	fTEMP_ignory_CRC,		// 4: Ошибки CRC игнорируются - неверные показания отбрасываеются через GAP_TEMP_VAL_CRC
 	fTEMP_as_TIN_average,	// 5: Используется для расчета TIN в качестве средней температуры, между всеми датчиками с таким флагом
 	fTEMP_as_TIN_min,		// 6: Используется для расчета TIN в качестве минимальной температуры, между всеми датчиками с таким и "average" флагами
-	fTEMP_HeatFloor			// 7: Используется для управления реле теплого пола (RPUMPFL), если температура любого датчика с этим флагом меньше целевой - реле вкл, иначе - реле выкл.
+	fTEMP_HeatFloor,		// 7: Используется для управления реле теплого пола (RPUMPFL), если температура любого датчика с этим флагом меньше целевой - реле вкл, иначе - реле выкл.
+	fTEMP_HeatTarget		// 8: Использовать датчик для включения/выключения нагрева по температуре "Мининимум". Гистерезис как задан в настройках отопления.
 };
 #define fDS2482_bus_mask	3
 
@@ -99,6 +100,23 @@ uint16_t radio_timecnt = 0; // *TIME_READ_SENSOR
 char Radio_RSSI_to_Level(uint8_t RSSI);
 #endif
 
+#define TEMP_ALARM_TEMP_MIN -127
+#define TEMP_ALARM_TEMP_MAX 127
+struct _TempAlarm {
+	uint8_t num;
+	int8_t MinTemp;		// градусы
+	int8_t MaxTemp;		// градусы, или старший байт целевой температуры, если установлен бит fTEMP_HeatTarget или fTEMP_HeatFloor
+} __attribute__((packed));
+_TempAlarm *TempAlarm = NULL;
+uint8_t TempAlarm_size = 0;
+
+int16_t get_TempAlarmMin(uint8_t num);	// в сотых градуса
+int16_t get_TempAlarmMax(uint8_t num);	// в сотых градуса
+void 	set_TempAlarmMin(uint8_t num, int8_t t);
+void 	set_TempAlarmMax(uint8_t num, int8_t t);
+uint8_t TempAlarm_add(void);
+void 	TempAlarm_remove(uint8_t idx);
+
 // класс датчик DS18B20 Температура хранится в сотых градуса в целых значениях
 class sensorTemp
 {
@@ -110,9 +128,6 @@ class sensorTemp
 #ifdef TNTC
     int16_t  Read_NTC(uint16_t val);
 #endif
-    int16_t  get_minTemp(){return minTemp;}             // Минимальная темература датчика - нижняя граница диапазона, при выходе из него ошибка
-    int16_t  get_maxTemp(){return maxTemp;}             // Максимальная темература датчика - верхняя граница диапазона, при выходе из него ошибка
-    int16_t  set_maxTemp(int16_t t){return maxTemp=t;}  // Установить максимальную температуру датчика - верхняя граница диапазона, при выходе из него ошибка (изменение нужно для сальмонеллы)
     int16_t  get_errTemp(){ return errTemp;}            // Значение систематической ошибки датчика
     int8_t   set_errTemp(int16_t t);                    // Установить значение систематической ошибки датчика (поправка)
     int16_t  get_lastTemp(){return lastTemp;}           // Последнее считанное значение датчика - НЕ обработанное (без коррекции ошибки и усреднения)
@@ -120,20 +135,21 @@ class sensorTemp
     int16_t  get_rawTemp();                             // Получить значение температуры ПРОВОДНОГО датчика
     void	 set_Temp(int16_t t) { Temp = t; } 			// Установить температуру датчика
     int16_t  get_testTemp(){return testTemp;}           // Получить значение температуры датчика - в режиме теста
-    int8_t   set_testTemp(int16_t t);                   // Установить значение температуры датчика - в режиме теста
-    TEST_MODE get_testMode(){return  testMode;}         // Получить текущий режим работы
-    void     set_testMode(TEST_MODE t){testMode=t;}     // Установить значение текущий режим работы
+    void     set_testTemp(int16_t t) { testTemp = t; }  // Установить значение температуры датчика - в режиме теста
     
     void     set_address(byte *addr, byte bus);    		// Привязать адрес и номер шины
     uint8_t* get_address(){return address;}  			// Получить адрес датчика
-    __attribute__((always_inline)) inline boolean get_present(){return GETBIT(flags,fPresent);} // Наличие датчика в текущей конфигурации
+    __attribute__((always_inline)) inline bool get_present(){return GETBIT(flags,fPresent);} // Наличие датчика в текущей конфигурации
     uint8_t get_cfg_flags() { return SENSORTEMP[number]; } // Вернуть биты конфигурации (наличие, особенности отображения на веб страницах,)
-    __attribute__((always_inline)) inline boolean get_fAddress(){ return GETBIT(flags,fAddress); } // Датчик привязан
+    __attribute__((always_inline)) inline bool get_fAddress(){ return GETBIT(flags,fAddress); } // Датчик привязан
+    __attribute__((always_inline)) inline bool get_flag(uint8_t bit){ return GETBIT(flags, bit); }
+    __attribute__((always_inline)) inline void set_flag(uint8_t bit, uint8_t value) { flags = (flags & ~(1<<bit)) | ((value!=0)<<bit); }	// установить рабочий флаг
     uint8_t get_bus(void);									// Шина
-    __attribute__((always_inline)) inline boolean get_setup_flag(uint8_t bit){ return GETBIT(setup_flags, bit); }
-    __attribute__((always_inline)) inline uint8_t get_setup_flags(void){ return setup_flags; }
+    __attribute__((always_inline)) inline bool get_setup_flag(uint8_t bit){ return GETBIT(setup_flags, bit); }
+    __attribute__((always_inline)) inline uint16_t get_setup_flags(void){ return setup_flags; }
     inline void set_setup_flag(uint8_t bit, uint8_t value){ setup_flags = (setup_flags & ~(1<<bit)) | ((value!=0)<<bit); }
     int8_t   get_radio_received_idx();					// Индекс массива полученных данных
+    inline int8_t set_Err(int8_t e) { return err = e; }		// Установить ошибку
     int8_t   get_lastErr(){return err;}                 // Получить последнюю ошибку
     uint32_t get_sumErrorRead(){return sumErrorRead;}   // Получить число ошибок чтения датчика с момента сброса НК
     void     Reset_Errors() { sumErrorRead = 0; }		// Сброс счетчика ошибок
@@ -149,11 +165,8 @@ class sensorTemp
     #endif
     
   private:
-   int16_t minTemp;                                     // минимальная разрешенная температура
-   int16_t maxTemp;                                     // максимальная разрешенная температура
    int16_t lastTemp;                                    // последняя считанная температура с датчика
    int16_t Temp;                                        // температура датчика в сотых градуса (обработанная)
-   TEST_MODE testMode;                                  // Значение режима тестирования
    int8_t  err;                                         // ошибка датчика (работа) при ошибке останов ТН
    uint8_t numErrorRead;                                // Счечик ошибок чтения датчика подряд если оно больше NUM_READ_TEMP_ERR генерация ошибки датчика
    uint32_t sumErrorRead;                               // Cуммарный счечик ошибок чтения датчика - число ошибок датчика с момента перегрузки
@@ -162,16 +175,16 @@ class sensorTemp
 #if (T_NUMSAMLES > 1)
    int32_t sum;                                         // Накопленная сумма
    uint8_t last;                                        // указатель на последнее (самое старое) значение в буфере диапазон от 0 до T_NUMSAMLES-1
-   int16_t t[T_NUMSAMLES];                              // буфер для усреднения показаний температуры
+   int16_t t_buf[T_NUMSAMLES];                              // буфер для усреднения показаний температуры
 #endif
    byte    flags;                                       // флаги  датчика
    struct { // Save GROUP, firth number
-   uint8_t number;  									// Номер датчика
-   int16_t errTemp;                                     // статическая ошибка датчика
-   int16_t testTemp;                                    // температура датчика в режиме тестирования
-   byte    address[8];                                  // текущий адрес датчика
-   	   	   	   	   	   	   	   	   	   	   	   	   	    // для радиодатчика, байты: 1 = tRadio, 4 - адрес
-   uint8_t setup_flags;							    	// флаги настройки (TEMP_SETUP_FLAGS)
+	   uint8_t number;  								// Номер датчика
+	   int16_t errTemp;                                 // статическая ошибка датчика, сотые
+	   int16_t testTemp;                                // температура датчика в режиме тестирования, сотые
+	   byte    address[8];                              // текущий адрес датчика
+	   	   	   	   	   	   	   	   	   	   	   	   	   	// для радиодатчика, байты: 1 = tRadio, 4 - адрес
+	   uint16_t setup_flags;							// флаги настройки (TEMP_SETUP_FLAGS)
    } __attribute__((packed));// Save Group end, setup_flags
    char    *note;                                       // Описание датчика
    char    *name;                                        // Имя датчика

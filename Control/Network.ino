@@ -293,7 +293,7 @@ uint8_t check_address(char *adr, IPAddress &ip)
 	DNSClient dns;
 	int8_t ret = 0;
 	// 1. Попытка преобразовать строку в IP (цифры, нам повезло DNS не нужен)
-	if(parseIPAddress(adr, '.', tempIP)) {
+	if(parseIPAddress(adr, tempIP)) {
 		ip = tempIP;
 		return 1;
 	} // Удачно выходим
@@ -301,13 +301,17 @@ uint8_t check_address(char *adr, IPAddress &ip)
 	dns.begin(Ethernet.dnsServerIP());    // только запоминаем dnsServerIP ничего больше не делаем с сокетом
 	ret = dns.getHostByName(adr, tempIP, W5200_SOCK_SYS); // adr должен быть в ОЗУ!
 	if(ret == 1) { // Адрес получен
-		if(xTaskGetSchedulerState() != taskSCHEDULER_RUNNING)
+		SETBIT0(Logflags, fLog_DNS_Lookup);
+		if(xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED) {
 			journal.jprintf(" Resolved %s using %s as %d.%d.%d.%d\n", adr, dns.get_protocol() ? "TCP" : "UDP", tempIP[0], tempIP[1], tempIP[2], tempIP[3]);
+		}
 		ip = tempIP;
 		return 2;
 	} else {
-		if((HP.get_NetworkFlags() & (1<<fWebLogError)) || xTaskGetSchedulerState() != taskSCHEDULER_RUNNING)
+		if(((HP.get_NetworkFlags() & (1<<fWebLogError)) && !GETBIT(Logflags, fLog_DNS_Lookup)) || xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED) {
+			SETBIT1(Logflags, fLog_DNS_Lookup);
 			journal.jprintf(" DNS lookup %s using %s failed! Code: %d\n", adr, dns.get_protocol() ? "TCP" : "UDP", ret);
+		}
 		ip = tempIP;
 		return 0;
 	}
@@ -649,12 +653,13 @@ void pingW5200(boolean f)
 }
 
 // Запрос на сервер с ожиданием ответа, веб блокируется, вызов из MAIN_WEB_TASK
-// HTTP 1.0 GET, timeout - ms
+// HTTP 1.0 GET, timeout - ms, auth без завершающих "\r\n"
 // Ответ: "str=x", Возврат: int(x). Ошибка x <= -2000000000;
 // fget_value: 0 - не читать ответ, 1 - считать тело ответа в Socket[MAIN_WEB_TASK].outBuf, 4 - #1 + проверить Content-Length
 //             2 - вернуть значение после '=', 3 - проверить на "Ok"
-int Send_HTTP_Request(const char *server, const char *request, uint8_t fget_value)
+int Send_HTTP_Request(const char *server, char *auth, const char *request, uint8_t fget_value)
 {
+	static int8_t Last_Error[5];
 	if(server == NULL || request == NULL) return -2000000004;
 	if(SemaphoreTake(xWebThreadSemaphore, (W5200_TIME_WAIT / portTICK_PERIOD_MS)) == pdFALSE) {   // Захват семафора потока или ОЖИДАНИЕ W5200_TIME_WAIT, если семафор не получен то выходим
 		return -2000000000;
@@ -668,6 +673,7 @@ int Send_HTTP_Request(const char *server, const char *request, uint8_t fget_valu
 //		port = atoi(p + 1);
 //	}
 	if(HP.get_NetworkFlags() & (1<<fWebFullLog)) journal.jprintf_time("Send request: %s%s\n", server, request);
+	if(fget_value > 4) journal.jprintf("Wrong fget_value = %d: %s\n", fget_value, server);
 	uint8_t *buffer = (uint8_t *) Socket[MAIN_WEB_TASK].outBuf + sizeof(Socket[MAIN_WEB_TASK].outBuf)/2;
 	IPAddress ip(0, 0, 0, 0);
 	if(check_address((char*)server, ip) == 0) {
@@ -680,6 +686,11 @@ int Send_HTTP_Request(const char *server, const char *request, uint8_t fget_valu
 			strcpy((char*)buffer + sizeof(http_get_str1)-1, request);
 			strcat((char*)buffer + sizeof(http_get_str1)-1, http_get_str2);
 			strcat((char*)buffer + sizeof(http_get_str1)-1 + sizeof(http_get_str2)-1, server);
+			strcat((char*)buffer + sizeof(http_get_str1)-1 + sizeof(http_get_str2)-1, "\r\n");
+			if(*auth) {
+				strcat((char*)buffer + sizeof(http_get_str1)-1 + sizeof(http_get_str2)-1, header_Authorization_1);
+				strcat((char*)buffer + sizeof(http_get_str1)-1 + sizeof(http_get_str2)-1 + sizeof(header_Authorization_1)-1, auth);
+			}
 			strcat((char*)buffer + sizeof(http_get_str1)-1 + sizeof(http_get_str2)-1, http_get_str3);
 			if(tTCP.write(buffer, strlen((char*)buffer + sizeof(http_get_str1)-1 + sizeof(http_get_str2)-1 + sizeof(http_get_str3)-1) + sizeof(http_get_str1)-1 + sizeof(http_get_str2)-1 + sizeof(http_get_str3)-1) == 0) {
 				ret = -2000000011;
@@ -751,7 +762,7 @@ xget_value_1:
 														ret = (buffer[0] & ~0x20) == 'O' && (buffer[1] & ~0x20) == 'K'; // 'Ok'?
 														if(ret == 0 && (HP.get_NetworkFlags() & ((1<<fWebFullLog) | (1<<fWebLogError))) == (1<<fWebLogError)) {
 															*(Socket[MAIN_WEB_TASK].outBuf + datasize) = '\0';
-															journal.jprintf_time("Response: %s", buffer);
+															if(!GETBIT(Logflags, fLog_HTTP_RelayError)) journal.jprintf_time("Response: %s", buffer);
 														}
 													}
 													if(HP.get_NetworkFlags() & (1<<fWebFullLog)) journal.jprintf_time("Response: %s", buffer);
@@ -761,8 +772,8 @@ xget_value_1:
 									}
 								} else {
 									buffer[sizeof(http_key_ok2) + 3] = '\0';
-									if(HP.get_NetworkFlags() & ((1<<fWebLogError) | (1<<fWebFullLog))) {
-										journal.jprintf(" ERR %s", buffer);
+//									if(HP.get_NetworkFlags() & ((1<<fWebLogError) | (1<<fWebFullLog))) {
+//										journal.jprintf(" ERR %s", buffer);
 //										if(HP.get_NetworkFlags() & (1<<fWebFullLog)) {
 //											int datasize;
 //											while((datasize = tTCP.available())) {
@@ -771,7 +782,7 @@ xget_value_1:
 //											}
 //											journal.jprintf("\n");
 //										}
-									}
+//									}
 									ret = -2000000008;
 								}
 							} else ret = -2000000007;
@@ -784,34 +795,36 @@ xget_value_1:
 	}
 	SemaphoreGive(xWebThreadSemaphore);
 	if(HP.get_NetworkFlags() & (1<<fWebFullLog)) journal.jprintf(" Ret = %d\n", ret);
-	else if(ret < 0 && (HP.get_NetworkFlags() & (1<<fWebLogError))) {
-		journal.jprintf_time("Error %d send request to %s!", ret + 2000000000, server);
-		switch (ret)
-		{
-		case -2000000001:
-			journal.jprintf(" Response timeout");
-			break;
-		case -2000000002:
-			journal.jprintf(" Address wrong");
-			break;
-		case -2000000003:
-			journal.jprintf(" Connect fail");
-			break;
-		case -2000000011:
-			journal.jprintf(" Send error");
-			break;
-		case -2000000010:
-			journal.jprintf(" Empty response");
-			break;
-		case -2000000009:
-			journal.jprintf(" Response: %s", buffer);
-			break;
-		case -2000000008:
-			journal.jprintf(" ERR %s", buffer);
-			break;
+	else if(ret < 0) {
+		if(Last_Error[fget_value] != (int8_t)(ret + 2000000000)) {
+			journal.jprintf_time("Error %d GET %s ", Last_Error[fget_value] = ret + 2000000000, server);
+			switch (ret)
+			{
+			case -2000000001:
+				journal.jprintf("Timeout");
+				break;
+			case -2000000002:
+				journal.jprintf("Address wrong");
+				break;
+			case -2000000003:
+				journal.jprintf("Connect fail, SnSR:%d", tTCP.status());
+				break;
+			case -2000000011:
+				journal.jprintf("Send error");
+				break;
+			case -2000000010:
+				journal.jprintf("Empty response");
+				break;
+			case -2000000009:
+				journal.jprintf("Response: %s", buffer);
+				break;
+			case -2000000008:
+				journal.jprintf("ERR %s", buffer);
+				break;
+			}
+			journal.jprintf("\n");
 		}
-		journal.jprintf("\n");
-	}
+	} else Last_Error[fget_value] = 0;
 	return ret;
 }
 

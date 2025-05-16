@@ -50,13 +50,17 @@ enum {
 	STATS_OBJ_Power_FC,
 	STATS_OBJ_Power_GEO,
 	STATS_OBJ_Power_OUT,
-	STATS_OBJ_Current_FC,	//= 16,
+	STATS_OBJ_Power_RBOILER,
 	STATS_OBJ_Compressor,	//= 17,
 	STATS_OBJ_COP_Full,		//= 18,
 	STATS_OBJ_Sun,			//= 19,
 	STATS_OBJ_Relay,		//= 20,
 	STATS_OBJ_WattRouter_In,//= 21,
-	STATS_OBJ_WattRouter_Out//= 22
+	STATS_OBJ_WattRouter_Out,//= 22, Кроме
+	STATS_OBJ_WattRouter_Excess,//= 23
+	STATS_OBJ_Power_BOILER,	// кВт*ч, потрачено на нагрев ГВС всего, включая ваттроутер
+	STATS_OBJ_PowerDay,		// кВт*ч, потребление ТН по дневному тарифу (не TARIF_NIGHT_START - END), TYPE_SUM, должен следовать после STATS_OBJ_Power
+	STATS_OBJ_PowerNight	// кВт*ч, потребление ТН по ночному тарифу (TARIF_NIGHT_START - END), TYPE_SUM, должен следовать после STATS_OBJ_Power
 };
 
 const char *STATS_OBJ_names[] = {
@@ -76,13 +80,16 @@ const char *STATS_OBJ_names[] = {
 	"Power_FC",
 	"Power_GEO",
 	"Power_OUT",
-	"Current_FC",
+	"Power_RBOILER",
 	"Compressor",
 	"COP_Full",
 	"Sun",
 	"Relay",
 	"WattRouter_In",
 	"WattRouter_Out",
+	"WattRouter_Excess",
+	"PowerDay",
+	"PowerNight",
 	NULL
 };
 

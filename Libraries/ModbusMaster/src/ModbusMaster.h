@@ -1,6 +1,6 @@
 /*
 Доработка библиотеки для "Народного контроллера теплового насоса"
-Автор pav2000  firstlast2007@gmail.com
+pav2000  firstlast2007@gmail.com
 Добавлены изменения для работы с инвертором Omron MX2
 - поддерживается функция проверки связи (код функции 0х08)
 для проверки функции используйте   LinkTestOmronMX2Only(code)
@@ -10,7 +10,7 @@
 при этом возвращается состяние ku8MBErrorOmronMX2,
 первый элемент буфера при этом содержит код ошибки
 *
-* Some additional - vad7@yahoo.com
+* Доработки - vad7@yahoo.com
 */
 
 /**
@@ -51,8 +51,6 @@ Arduino library for communicating with Modbus slaves over RS232/485 (via RTU pro
 #ifdef MODBUS_FREERTOS
 #include "FreeRTOS_ARM.h"                // поддержка многозадачности
 #endif
-
-#define MIN_TIME_BETWEEN_TRANSACTION	30 // ms
 
 // Коды функций Modbus
 // Modbus function codes for bit access
@@ -222,7 +220,6 @@ class ModbusMaster
     uint8_t available(void);
     uint16_t receive(void);
     
-    
     uint8_t  readCoils(uint16_t, uint16_t);
     uint8_t  readDiscreteInputs(uint16_t, uint16_t);
     uint8_t  readHoldingRegisters(uint16_t, uint16_t);
@@ -239,7 +236,10 @@ class ModbusMaster
     uint8_t  LinkTestOmronMX2Only(uint16_t);
 
     // master function that conducts Modbus transactions
-    uint8_t ModbusMasterTransaction(uint8_t u8MBFunction);
+    uint8_t ModbusMasterTransaction(uint8_t);
+	uint8_t ModbusMinTimeBetweenTransaction; // ms
+    // Modbus timeout [milliseconds] Depend on serial speed
+	uint8_t ModbusResponseTimeout; // < Modbus timeout, every byte [milliseconds]
     
   private:
     Stream* _serial;                                             ///< reference to serial port object
@@ -259,9 +259,6 @@ class ModbusMaster
     uint8_t _u8ResponseBufferLength;
     uint32_t last_transaction_time;
 
-    // Modbus timeout [milliseconds] Depend on serial speed
-    static const uint16_t ku16MBResponseTimeout          = 100;   ///< Modbus timeout, every byte [milliseconds]
-    
     // idle callback function; gets called during idle time between TX and RX
     void (*_idle)();
     // preTransmission callback function; gets called before writing a Modbus message

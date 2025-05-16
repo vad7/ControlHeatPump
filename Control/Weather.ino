@@ -25,12 +25,14 @@ const char WF_JSON_Sunrise[] = "\"sunrise\"";
 const char WF_JSON_Hourly[] = "\"hourly\"";
 const char WF_JSON_DT[] = "\"dt\"";
 const char WF_JSON_Clouds[] = "\"clouds\"";
+const char WF_JSON_Temp[] = "\"feels_like\"";
 
 // Возврат 0 - ОК
 int WF_ProcessForecast(char *json)
 {
 	char *fld = strstr(json, WF_JSON_Sunrise);
 	if(!fld) {
+		/*if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf("WF: no data\n");*/
 		WF_BoilerTargetPercent = 100;
 		return -2;
 	}
@@ -46,37 +48,49 @@ int WF_ProcessForecast(char *json)
 		return -4;
 	}
 	fld += sizeof(WF_JSON_Hourly);
-	int32_t avg = 0;
+	int32_t avg_cl = 0, avg_t = 0;
 	uint8_t i = 1;
 	for(; i <= WF_ForecastAggregateHours; i++) {
 		fld = strstr(fld, WF_JSON_DT);
 		if(!fld) break;
-		uint32_t n = strtoul(fld += sizeof(WF_JSON_DT), NULL, 0);
-		if(n == ULONG_MAX) break;
-		if(n < t) {
+		uint32_t nt = strtoul(fld += sizeof(WF_JSON_DT), NULL, 0);
+		if(nt == ULONG_MAX) break;
+		if(nt < t) {
 			i--;
 			continue;
 		}
+		fld = strstr(fld, WF_JSON_Temp);
+		if(!fld) break;
+		int32_t n = strtol(fld += sizeof(WF_JSON_Temp), NULL, 0);
+		if(n == LONG_MAX || n == LONG_MIN) break;
+		avg_t += n;
 		fld = strstr(fld, WF_JSON_Clouds);
 		if(!fld) break;
-		n = strtoul(fld += sizeof(WF_JSON_Clouds), NULL, 0);
-		if(n == ULONG_MAX) break;
-		avg += n;
+		n = strtol(fld += sizeof(WF_JSON_Clouds), NULL, 0);
+		if(n == LONG_MAX || n == LONG_MIN) break;
+		avg_cl += n;
 	}
-	if(--i) {
-		avg /= i;
-		/*if(GETBIT(WR.Flags, WR_fLog))*/ journal.jprintf("WF: Clouds(%d)=%d", i, avg);
-		if(avg < 100) {
-			//avg = (avg - 66) * 3; // 66..99 -> 0..98
-			avg = (avg - 50) * 2; // 50..99 -> 0..98
-			if(avg < 0) avg = 0;
+	i--;
+	if(i) {
+		if((avg_t /= i) > HP.Option.WF_MinTemp) {
+			avg_cl /= i;
+			/*if(GETBIT(WR.Flags, WR_fLog))*/ journal.jprintf_time("WF: Clouds(%d)=%d", i, avg_cl);
+			if(avg_cl < 100) {
+				//avg = (avg - 66) * 3; // 66..99 -> 0..98
+				avg_cl = (avg_cl - 60) * 2; // 60..99 -> 0..98
+				if(avg_cl < 0) avg_cl = 0;
+			}
+			avg_cl += WF_SunByMonth[rtcSAM3X8.get_months()-1];
+			if(avg_cl > 100) avg_cl = 100;
+			WF_BoilerTargetPercent = avg_cl;
+			/*if(GETBIT(WR.Flags, WR_fLog))*/ journal.jprintf(":%d%%, BoilerTrg=%.2d\n", avg_cl, HP.get_boilerTempTarget());
+		} else {
+			/*if(GETBIT(WR.Flags, WR_fLog))*/ journal.jprintf_time("WF: 100%, FeelTemp low: %d\n", avg_t);
+			WF_BoilerTargetPercent = 100;
 		}
-		avg += WF_SunByMonth[rtcSAM3X8.get_months()-1];
-		if(avg > 100) avg = 100;
-		/*if(GETBIT(WR.Flags, WR_fLog))*/ journal.jprintf(":%d\n", avg);
-		WF_BoilerTargetPercent = avg;
 		return OK;
 	}
+	/*if(GETBIT(WR.Flags, WR_fLog)) journal.jprintf_time("WF: no data\n");*/
 	WF_BoilerTargetPercent = 100;
 	return -1;
 }

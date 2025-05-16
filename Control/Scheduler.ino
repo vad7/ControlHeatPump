@@ -108,13 +108,20 @@ void Scheduler::web_get_param(char *param, char *result)
 		strcat(result, sch_data.Flags & (1<<bScheduler_active) ? cOne : cZero);
 	} else ifparam(WEB_SCH_Active) {
 		itoa(sch_data.Active, result, 10);
+	} else ifparam(WEB_SCH_fSch_AS_DontSwitch) {
+		if((cnum = param[sizeof(WEB_SCH_fSch_AS_DontSwitch)-1]) == '\0') cnum = sch_data.Active; else cnum -= '0';
+		if(cnum >= MAX_CALENDARS) {
+			strcat(result, "E33");
+			return;
+		}
+		strcat(result, (sch_data.AutoSelectMonthWeek[cnum] & fSch_AS_DontSwitch) ? "1" : "0");
 	} else ifparam(WEB_SCH_AutoSelectMonth) {
 		if((cnum = param[sizeof(WEB_SCH_AutoSelectMonth)-1]) == '\0') cnum = sch_data.Active; else cnum -= '0';
 		if(cnum >= MAX_CALENDARS) {
 			strcat(result, "E33");
 			return;
 		}
-		if(sch_data.AutoSelectMonthWeek[cnum]) itoa((sch_data.AutoSelectMonthWeek[cnum] >> 3) & 0xF, result, 10);
+		if(sch_data.AutoSelectMonthWeek[cnum] & 0x3F) itoa((sch_data.AutoSelectMonthWeek[cnum] >> 2) & 0xF, result, 10);
 		else strcat(result, "-");
 	} else ifparam(WEB_SCH_AutoSelectWeek) {
 		if((cnum = param[sizeof(WEB_SCH_AutoSelectWeek)-1]) == '\0') cnum = sch_data.Active; else cnum -= '0';
@@ -122,7 +129,7 @@ void Scheduler::web_get_param(char *param, char *result)
 			strcat(result, "E33");
 			return;
 		}
-		if(sch_data.AutoSelectMonthWeek[cnum]) itoa((sch_data.AutoSelectMonthWeek[cnum] & 0x7) + 1, result, 10);
+		if(sch_data.AutoSelectMonthWeek[cnum] & 0x3F) itoa((sch_data.AutoSelectMonthWeek[cnum] & 0x3) + 1, result, 10);
 		else strcat(result, "-");
 	} else ifparam(WEB_SCH_Names) {
 		uint8_t i = 0;
@@ -176,19 +183,23 @@ uint8_t Scheduler::web_set_param(char *param, char *val)
 		cnum = atoi(val);
 		if(cnum >= MAX_CALENDARS) return 1;
 		sch_data.Active = cnum;
+	} else ifparam(WEB_SCH_fSch_AS_DontSwitch) {
+		if((cnum = param[sizeof(WEB_SCH_fSch_AS_DontSwitch)-1]) == '\0') cnum = sch_data.Active; else cnum -= '0';
+		if(cnum >= MAX_CALENDARS) return 1;
+		sch_data.AutoSelectMonthWeek[cnum] = (sch_data.AutoSelectMonthWeek[cnum] & ~fSch_AS_DontSwitch) | (atoi(val) ? fSch_AS_DontSwitch : 0);
 	} else ifparam(WEB_SCH_AutoSelectMonth) {
 		if((cnum = param[sizeof(WEB_SCH_AutoSelectMonth)-1]) == '\0') cnum = sch_data.Active; else cnum -= '0';
 		if(cnum >= MAX_CALENDARS) return 1;
 		uint8_t n = atoi(val);
-		if(n == 0) sch_data.AutoSelectMonthWeek[cnum] = 0;
-		else sch_data.AutoSelectMonthWeek[cnum] = (sch_data.AutoSelectMonthWeek[cnum] & 0x7) | (n << 3);
+		if(n == 0) sch_data.AutoSelectMonthWeek[cnum] &= fSch_AS_DontSwitch;
+		else sch_data.AutoSelectMonthWeek[cnum] = (sch_data.AutoSelectMonthWeek[cnum] & (fSch_AS_DontSwitch | 0x3)) | (n << 2);
 	} else ifparam(WEB_SCH_AutoSelectWeek) {
 		if((cnum = param[sizeof(WEB_SCH_AutoSelectWeek)-1]) == '\0') cnum = sch_data.Active; else cnum -= '0';
 		if(cnum >= MAX_CALENDARS) return 1;
 		if(sch_data.AutoSelectMonthWeek[cnum]) {
 			uint8_t n = atoi(val);
 			if(n > 0) n--;
-			sch_data.AutoSelectMonthWeek[cnum] = (sch_data.AutoSelectMonthWeek[cnum] & ~0x7) | n;
+			sch_data.AutoSelectMonthWeek[cnum] = (sch_data.AutoSelectMonthWeek[cnum] & ~0x3) | n;
 		}
 	} else ifparam(WEB_SCH_Name) { // NameX, X - номер
 		if((cnum = param[sizeof(WEB_SCH_Name)-1]) == '\0') cnum = sch_data.Active; else cnum -= '0';
@@ -274,7 +285,7 @@ int16_t Scheduler::load(uint8_t *data)
 #ifndef LOAD_VERIFICATION
 	if(ret >= 0)
 #endif
-	    journal.jprintf("%d bytes Ok.\n", ret);
+	    journal.jprintf(" %d bytes Ok.\n", ret);
 	} else {
 		journal.jprintf("CRC mismatch!\n");
 	}

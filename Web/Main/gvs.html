@@ -1,4 +1,4 @@
-<html>
+<html lang="ru">
 <head>
 <title>ГВС. Народный контроллер ТН</title>
 <meta charset="utf-8" />
@@ -23,13 +23,16 @@ $( function() { $("#calendar").selectable({filter: ".clc", stop: function() {
 		this.innerHTML = shifted ? "" : window.calendar_act_chr;
 	});
 } }); });
-$(document).on('keyup keydown', function(e){ shifted = e.shiftKey } );
+$(document).ready(function() {
+	$(document).on('keyup keydown', function(e){ shifted = e.shiftKey });
+	$("#calendar .clh").click(function(e){ shifted = !shifted; });
+});
 </script>
 <script type='text/javascript' src='scripts.js'></script>
 <script type="text/javascript">
 window.onload = function() {
-	loadParam("get_Boiler(RESH),get_Boiler(RESHT),get_Boiler(CIRCP),get_Boiler(CIRCW),get_Boiler(MAX),get_Boiler(ON),get_Boiler(SCH_ON),get_Boiler(SCH_AH),get_Boiler(ADDH),get_Boiler(SLMN),get_Boiler(CIRC),get_Boiler(DTRG),get_Boiler(TRG),get_Boiler(TEMP),get_Boiler(TEMPR),get_Boiler(TURBO),get_Boiler(W)");
-	loadParam("get_Boiler(TGHEAT),get_Boiler(PD),get_Boiler(PI),get_Boiler(PP),get_Boiler(PT),get_Boiler(ADT),get_Boiler(ADH),get_Boiler(ADEH),get_Boiler(SCHEDULER),get_Boiler(PID),get_Boiler(SUN),get_Boiler(dAH),get_Boiler(AHF),get_Boiler(URG),get_Boiler(DD),get_Boiler(WG),get_Boiler(WT),get_Boiler(TT)");
+	loadParam("get_Boiler(RESH),get_Boiler(RESHT),get_Boiler(CIRCP),get_Boiler(CIRCW),get_Boiler(MAX),get_Boiler(ON),get_Boiler(SCH_ON),get_Boiler(SCH_AH),get_Boiler(ADDH),get_Boiler(SLMN),get_Boiler(CIRC),get_Boiler(DTRG),get_Boiler(TRG),get_Boiler(TEMP),get_Boiler(TEMPR),get_Boiler(TURBO),get_Boiler(W),get_Boiler(TP)");
+	loadParam("get_Boiler(TGHEAT),get_Boiler(PD),get_Boiler(PI),get_Boiler(PP),get_Boiler(PT),get_Boiler(ADT),get_Boiler(ADH),get_Boiler(ADEH),get_Boiler(SCHEDULER),get_Boiler(PID),get_Boiler(SUN),get_Boiler(dAH),get_Boiler(AHF),get_Boiler(URG),get_Boiler(DD),get_Boiler(WG),get_Boiler(WT),get_Boiler(TT),get_Boiler(CIRS),get_Boiler(DO)");
 };
 </script>
 </head>
@@ -40,7 +43,7 @@ window.onload = function() {
 <input type="submit" value="?" onclick='location.assign("gvs-help.html")' style="float:none;">
 </h1><br>
 	<h2>Параметры ГВС</h2>
-	<table><thead>
+	<table border="1" rules="rows"><thead>
 	<tr>
 		<th>Параметр</th>
 		<th>Значение</th>
@@ -57,7 +60,7 @@ window.onload = function() {
 		<td nowrap><input id="get_boiler-trg" type="number" min="5" max="90" step="0.1"><input type="submit" value=">" onclick="setParam('get_Boiler(TRG)');"></td>
 	</tr><tr>
 		<td>Гистерезис целевой температуры °C [0..30]<sup>1</sup></td>
-		<td nowrap><input id="get_boiler-dtrg" type="number" min="0" max="30" step="0.1"><input type="submit" value=">" onclick="setParam('get_Boiler(DTRG)');"></td>
+		<td nowrap><input id="get_boiler-dtrg" type="number" min="0" max="90" step="0.1"><input type="submit" value=">" onclick="setParam('get_Boiler(DTRG)');"></td>
 	</tr><tr>
 		<td><b>Использование ночного тарифа</b></td><td></td>
 	</tr><tr>
@@ -93,13 +96,16 @@ window.onload = function() {
 		<td>Включать догрев, если компрессор не нагрел бойлер до температуры догрева<sup>5</sup></td>
 		<td><input id="get_boiler-ahf" type="checkbox" onchange="setParam('get_Boiler(AHF)');"></td>
 	</tr><tr>
+		<td>По "расписанию только для тэна" включать всегда тэн, иначе с температуры догрева - гистерезис</td>
+		<td><input id="get_boiler-tp" type="checkbox" onchange="setParam('get_Boiler(TP)');"></td>
+	</tr><tr>
 		<td><b>ПИД</b></td><td></td>
 	</tr><tr>
 		<td>Использовать ПИД управление инвертором</td>
 		<td><input id="get_boiler-pid" type="checkbox" onchange="setParam('get_Boiler(PID)');"></td>
 	</tr><tr>
-		<td>Целевая температура подачи °C [30..70]</td>
-		<td nowrap><input id="get_boiler-temp" type="number" min="30" max="70" step="0.1"><input type="submit" value=">" onclick="setParam('get_Boiler(TEMP)');"></td>
+		<td>Целевая температура подачи °C [5..70]</td>
+		<td nowrap><input id="get_boiler-temp" type="number" min="5" max="70" step="0.1"><input type="submit" value=">" onclick="setParam('get_Boiler(TEMP)');"></td>
 	</tr><tr>
 		<td>Постоянная интегрирования времени (сек.) [5..600]</td>
 		<td nowrap><input id="get_boiler-pt" type="number" min="5" max="600" step="1"><input type="submit" value=">" onclick="setParam('get_Boiler(PT)');"></td>
@@ -116,15 +122,15 @@ window.onload = function() {
 		<td><b>Защиты при работе теплового насоса</b></td>
 		<td></td>
 	</tr><tr>
-		<td>Максимальная температура подачи °C [20..70]</td>
-		<td nowrap><input id="get_boiler-max" type="number" min="20" max="70" step="0.1"><input type="submit" value=">" onclick="setParam('get_Boiler(MAX)');"></td>
+		<td>Максимальная температура подачи °C [5..70]</td>
+		<td nowrap><input id="get_boiler-max" type="number" min="5" max="70" step="0.1"><input type="submit" value=">" onclick="setParam('get_Boiler(MAX)');"></td>
 	</tr><tr>
 		<td><b>Опции</b></td><td></td>
 	</tr><tr>
 		<td>Греть совместно с отоплением, если ТН работает на отопление<sup>6</sup></td>
 		<td><input id="get_boiler-tgheat" type="checkbox" onchange="setParam('get_Boiler(TGHEAT)');"></td>
 	</tr><tr>
-		<td>Профилактика сальмонеллы (1 раз в неделю)</td>
+		<td>Профилактика легионеллы (1 раз в неделю)</td>
 		<td><input type="checkbox" id="get_boiler-slmn" onChange="setParam('get_Boiler(SLMN)');" ></td>
 	</tr><tr>
 		<td>Использовать солнечный коллектор (TSUN>TEVAOUTG+Δ°)</td>
@@ -133,8 +139,14 @@ window.onload = function() {
 		<td>Греть от генератора без ТЭНа</td>
 		<td><input type="checkbox" id="get_boiler-wg" onchange="setParam('get_Boiler(WG)');"></td>
 	</tr><tr>
+		<td>Задержка выключения насоса после выключения компрессора, сек.</td>
+		<td nowrap><input type="number" id="get_boiler-do"> <input type="submit" value=">" onclick="setParam('get_Boiler(DO)');"></td>
+	</tr><tr>
 		<td>Управление циркуляционным насосом ГВС<sup>7</sup></td>
 		<td><input type="checkbox" id="get_boiler-circ" onChange="setParam('get_Boiler(CIRC)');" ></td>
+	</tr><tr>
+		<td>Включение циркуляционного насоса ГВС по расписанию</td>
+		<td><input type="checkbox" id="get_boiler-cirs" onChange="setParam('get_Boiler(CIRS)');" ></td>
 	</tr><tr>
 		<td>Время работы циркуляционного насоса ГВС (мин.) [0...60]<sup>8</sup></td>
 		<td nowrap><input id="get_boiler-circw" type="number" min="0" max="60" step="1"><input type="submit" value=">" onclick="setParam('get_Boiler(CIRCW)');"></td>
@@ -149,7 +161,7 @@ window.onload = function() {
 		<td nowrap><input id="get_boiler-resht" type="number" min="1" max="10000" step="1"><input type="submit" value=">" onclick="setParam('get_Boiler(RESHT)');"></td>
 	</tr><tr>
 	</tr><tr>
-		<td>Сброс тепла в отопление при приближении подачи к максимальной/догреву на °С</td>
+		<td>Сброс тепла в отопление при приближении подачи к максимуму на °С</td>
 		<td nowrap><input id="get_boiler-dd" type="number" min="0" step="0.1"><input type="submit" value=">" onclick="setParam('get_Boiler(DD)');"></td>
 	</tr><tr>
 	<td><b>Расписание</b></td><td></td>
@@ -212,19 +224,19 @@ window.onload = function() {
 		</tr>
 	</tbody>
 </table>
-Левая кнопка мыши - установить, с клавишой SHIFT - очистить.<br>
+Левая кнопка мыши - установить, с клавишой SHIFT - очистить, переключить - клик на днях недели.<br>
 <br><input type="submit" value="Запомнить расписание" onClick="setParam('get_Boiler(SCHEDULER)');"><br>
 <br>
 1. Диапазон регулирования равен: Целевая температура - Гистерезис целевой температуры.<br/>
 2. При установке значения добавки 0 °C данная опция не работает.<br/>
-3. Одновременно с нагревом бойлера включается ТЭН (параллельная работа), это уменьшает время нагрева, раздельный нагрев ТН и ТЭНом блокируется.<br/>
-4. Двух-ступенчатый нагрев бойлера. ТН греет бойлер до температуры догрева, далее до целевой температуры греет ТЭН.<br/>
+3. Одновременно с нагревом бойлера включается ТЭН (параллельная работа), это уменьшает время нагрева. Если включен догрев, то компрессор работает до температуры догрева.<br/>
+4. Двух-ступенчатый нагрев бойлера. ТН греет бойлер до температуры догрева, далее до целевой температуры греет ТЭН. Так же ТЭН будет включаться во время ожидание паузы компрессора.<br/>
 5. Включение догрева даже если не достигнута температура догрева (нагрев ТН) по причине достижения граничных условий (например температуры нагнетания).<br/>
 6. Актуально, если на ГВС и систему отопления стоят разные насосы (нет трехходового крана).<br/>
 7. Управление циркуляцией в системе ГВС (если есть контур циркуляции).<br/>
 8. Если установить 0-насос циркуляции ГВС вообще не работает.<br/>
 9. Если установить 0-насос циркуляции ГВС работает непрерывно.<br/>
-10. Переключение на отопление при достижение максимальной температуры подачи - 1 градус.<br/>
+10. Переключение на отопление при приближении к максимальной температуре подачи или нагнетания.<br/>
 11. Принудительно включить нагрев бойлера (отключается расписание и устанавливается гистерезис 0.1°C), после нагрева флаг автоматически снимается. На дисплее Nextion - нажать на ванну.<br/>
 <br>
 </div>

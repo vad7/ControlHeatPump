@@ -1,48 +1,112 @@
-<html><head><title>Modbus RTU. Народный контроллер ТН</title>
+<html lang="ru"><head><title>Modbus RTU. Народный контроллер ТН</title>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" type="text/css" href="style.css">
 <script type='text/javascript' src='scripts.js'></script>
 <script type="text/javascript">
-	//window.onload = function() {
-	//};
-	function set_param(e) {
-		var els = e.parentElement.parentElement.getElementsByClassName("mdb");
-		for(var i = 1; i < els.length; i++) els[i].id = els[i].id.replace(/\d+$/, '') + parseInt(els[0].value);
-		loadParam(els[1].id.replace(/-/, '(') + ')');
-	}
-	function set_value(e) {
-		var els = e.parentElement.parentElement.getElementsByClassName("mdb");
-		setParam(els[1].id.replace(/-/, '(') + ')');
-	}
-	function add_new_modbus_row(data_type) {
-		var el = document.getElementById("tbl_modbus");
-		var row = el.insertRow(-1);
-		var dev = parseInt(document.getElementById("device").value);
-		var mid = dev +':'+ data_type + ':0" class="mdb"';
-		row.insertCell(-1).innerHTML = dev;
-		row.insertCell(-1).innerHTML = '<input class="mdb" style="max-width: 100;" value="0"> <input type="submit" value=">" onclick="set_param(this)">' + ' ' + data_type.toUpperCase(); 
-		row.insertCell(-1).innerHTML = '<input id="get_modbus_val-'+mid+' style="max-width: 100;" value="0"> <input id="get_modbus_hex-'+mid+' style="background-color: transparent; max-width: 100;" readonly> <input type="submit" value=">" onclick="set_value(this)">';
-		row.insertCell(-1).innerHTML = '<span id="get_modbus_err-'+mid+'></span>';
-	}
-	var refreshid = 0;
-	function refresh_all() {
-		var pars = "";
-		var els = document.getElementById("tbl_modbus").rows;
-		var i = 1;
-		for(; i < els.length; i++) {
-			var id = els[i].getElementsByClassName("mdb")[1].id;
-			if(id.substr(-2) != ":0") pars += id.replace(/-/, '(') + ')' + (i < els.length - 1 ? ',' : '');
+window.onload = function() {
+	loadParam("get_modbus_p(timeout),get_modbus_p(pause)");
+};
+function set_param(e) {
+	var els = e.parentElement.parentElement.getElementsByClassName("mdb");
+	for(var i = 1; i < els.length; i++) els[i].id = els[i].id.replace(/\d+$/, '') + parseInt(els[0].value);
+	loadParam(els[1].id.replace(/-/, '(') + ')');
+}
+function set_value(e) {
+	var els = e.parentElement.parentElement.getElementsByClassName("mdb");
+	setParam(els[1].id.replace(/-/, '(') + ')');
+}
+function add_new_modbus_row(data_type) {
+	add_new_modbus_row_ex(data_type, "0", "0");
+}
+function add_new_modbus_row_ex(data_type, a, v) {
+	var el = document.getElementById("tbl_modbus");
+	var row = el.insertRow(-1);
+	var dev = parseInt(document.getElementById("device").value);
+	var mid = dev +':'+ data_type + ':' +a+ '" class="mdb"';
+	row.insertCell(-1).innerHTML = dev;
+	row.insertCell(-1).innerHTML = '<input class="mdb" style="max-width: 100;" value="' +a+ '"> <input type="submit" value=">" onclick="set_param(this)">' + ' ' + data_type.toUpperCase(); 
+	row.insertCell(-1).innerHTML = '<input id="get_modbus_val-'+mid+' style="max-width: 100;" value="' +v+ '"> <input id="get_modbus_hex-'+mid+' style="background-color: transparent; max-width: 100;" value="0x' +Number(v).toString(16).toUpperCase()+ '" readonly> <input type="submit" value=">" onclick="set_value(this)">';
+	row.insertCell(-1).innerHTML = '<span id="get_modbus_err-'+mid+'></span>';
+}
+var refreshid = 0;
+function refresh_all() {
+	var pars = "";
+	var els = document.getElementById("tbl_modbus").rows;
+	var i = 1, cnt = 0;
+	for(; i < els.length; i++) {
+		var id = els[i].getElementsByClassName("mdb")[1].id;
+		if(id.substr(-2) != ":0") { 
+			pars += id.replace(/-/, '(') + '),';
+			cnt++;
 		}
-		if(pars.length){
-			urltimeout = 500 * i;
+		if(cnt > 20) {
+			urltimeout = 200 * cnt;
+			cnt = 0;
 			if(urltimeout >= urlupdate) urltimeout = urlupdate - 10;
 			loadParam(pars);
+			pars = "";
 		}
 	}
-	function loadParam_after(paramid) {
-		if(document.getElementById("refresh_auto").checked && paramid.indexOf("get_modbus")!=-1) refresh_all();
+	if(cnt) {
+		urltimeout = 200 * cnt;
+		if(urltimeout >= urlupdate) urltimeout = urlupdate - 10;
+		loadParam(pars);
 	}
+}
+function loadParam_after(paramid) {
+	if(document.getElementById("refresh_auto").checked && paramid.indexOf("get_modbus")!=-1) refresh_all();
+}
+function modbus_load_dump() {
+    location.assign("settings_modbus-" + document.getElementById("device").value +"_"+ document.getElementById("dump_ftype").selectedOptions[0].value +"_"+ document.getElementById("dump_fsize").selectedOptions[0].value +"_"+ document.getElementById("dump_addr").value +"_"+ document.getElementById("dump_len").value +".bin");
+}
+function load_dump(f) {
+	var file = f.files[0];
+	var reader = new FileReader();
+	reader.readAsText(file);
+	reader.onerror = function() { alert(reader.error); }
+	reader.onload = function() {
+		if(!reader.result.length) {	alert("Пустой файл!"); return; }
+		var a = reader.result.split("\n");
+		if(a.length < 2) { alert("Неверный формат файла!"); return;	}
+		var at = a[0].indexOf("from");
+		if(at == -1) { alert("Ну задан тип адресов (from x) в первой строке!"); return;	}
+		at += 5;
+		var c = a[0].substring(at + 2).match(/\d+/g);
+		if(c.length >= 2) {
+			document.getElementById("dump_addr").value = c[0];
+			document.getElementById("dump_len").value = c[1];
+		}
+		at = a[0].charAt(at);
+		var t = a[0].indexOf("T");
+		if(t == -1) { alert("Ну задан тип ячеек (Tx) в первой строке!"); return; }
+		t = a[0].charAt(t+1);
+		document.getElementById("dump_fsize").value = t;
+		if(at == '4' && t == '1') t = 'w';
+		else if(at == '4' && t == '2') t = 'l';
+		else if(at == '4' && t == '3') t = 'f';
+		else if(at == '3' && t == '1') t = 'h';
+		else if(at == '3' && t == '3') t = 'i';
+		else { alert("Неверный тип ячеек (" +at+ "," +t+ ") в первой строке!"); return; }
+		document.getElementById("dump_ftype").value = at;
+		for(var i = 1; i < a.length; i++) {
+			if(!a[i]) continue;
+			c = a[i].split("=");
+			if(c.length) add_new_modbus_row_ex(t, c[0], c.length > 1 ? c[1] : "0");
+		}
+	}
+}
+function modbus_write_all()
+{
+	r = document.getElementById("tbl_modbus").rows;
+	if(r.length <= 1 || !confirm("ЗАПИСАТЬ ЯЧЕЙКИ (" + (r.length-1) + ") В УСТРОЙСТВО?")) return;
+	info = document.getElementById("writing_num");
+	for(var i = 1; i < r.length; i++) {
+		setParam(r[i].children[2].children[0].id.replace(/-/, '(') + ')');
+		info.innerHTML = i;
+	}
+	info.innerHTML = info.innerHTML + " OK";
+}
 </script>
 </head>
 <body class="actuators">
@@ -50,11 +114,16 @@
 <div class="content">
 <h1>Modbus RTU</h1>
 <br>
-<span style="font-size: larger;">Адрес устройства на шине RS485: </span><input id="device" type="number" min="0" max="255" step="1" value="1">
+<span style="font-size: larger;"><b>Адрес на шине RS485:</b></span> <input id="device" type="number" min="0" max="255" step="1" value="1"> Частотник: 1, Счетчик: 2.
+ <b>Таймаут:</b> <input id="get_modbus_p-timeout" type="number"><input type="submit" value=">" onclick="setParam('get_modbus_p(timeout)');"> <b>Пауза:</b> <input id="get_modbus_p-pause" type="number"><input type="submit" value=">" onclick="setParam('get_modbus_p(pause)');">
 <br>
-Частотник: 1, Счетчик: 2. Нумерация параметров с 0.
-<br> 
-<h3>Чтение, Адреса 4...: <input type="submit" value="+ W(16bit)" onclick="add_new_modbus_row('w')"> <input type="submit" value="+ L(32bit)" onclick="add_new_modbus_row('l')"> <input type="submit" value="+ F(Float)" onclick="add_new_modbus_row('f')"> Запись, Адреса 3...: <input type="submit" value="+ H(16bit)" onclick="add_new_modbus_row('h')"> <input type="submit" value="+ I(Float)" onclick="add_new_modbus_row('i')"> <input type="submit" value="+ C(Coil)" onclick="add_new_modbus_row('c')"> <input type="submit" value="Обновить, авто:" onclick="refresh_all()"> <input type="checkbox" id="refresh_auto"></h3> 
+<h3><b>Дамп в файл с ячейки:</b> <select id="dump_ftype"><option value="3">3...</option><option selected value="4">4...</option></select>
+<input id="dump_addr" type="number" min="0" value="1"> ячеек: <input id="dump_len" type="number" min="1" value="100"> 
+<select id="dump_fsize"><option value="1">16 bit</option><option value="2">32 bit</option><option value="3">float</option></select>
+<input type="submit" value="Загрузить" onclick="modbus_load_dump()"><br>
+Прочитать из файла: &nbsp;&nbsp;&nbsp;<input type="file" id="Load" onchange="load_dump(this)"> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<input type="submit" value="Записать" id="write_button" onclick="modbus_write_all()"> <span id="writing_num"></span>
+</h3>
+<h3>Чтение ячейки 4...: <input type="submit" value="+ W(16bit)" onclick="add_new_modbus_row('w')"> <input type="submit" value="+ L(32bit)" onclick="add_new_modbus_row('l')"> <input type="submit" value="+ F(Float)" onclick="add_new_modbus_row('f')"> Запись ячейки 3...: <input type="submit" value="+ H(16bit)" onclick="add_new_modbus_row('h')"> <input type="submit" value="+ I(Float)" onclick="add_new_modbus_row('i')"> <input type="submit" value="+ C(Coil)" onclick="add_new_modbus_row('c')"> <input type="submit" value="Обновить, авто:" onclick="refresh_all()"> <input type="checkbox" id="refresh_auto"></h3> 
 <table id="tbl_modbus">
 	<tr>
 		<th>Устройство</th>

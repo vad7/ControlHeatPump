@@ -27,12 +27,13 @@ int8_t devVaconFC::initFC()
 	FC_target = 0; // Целевая скорость частотика
 	FC_curr_freq = 0; // текущая частота инвертора
 	power = 0; // Тееущая мощность частотника
+#ifdef FC_MAX_CURRENT
 	current = 0; // Текуший ток частотника
+#endif
 	startCompressor = 0; // время старта компрессора
 	state = ERR_LINK_FC; // Состояние - нет связи с частотником по Modbus
 	Adjust_EEV_delta = 0;
 
-	testMode = NORMAL; // Значение режима тестирования
 	name = (char*) FC_VACON_NAME; // Имя
 	note = (char*) noteFC_NONE; // Описание инвертора   типа нет его
 
@@ -52,16 +53,17 @@ int8_t devVaconFC::initFC()
 	_data.maxFreqUser = DEF_FC_MAX_FREQ_USER;          // Максимальная скорость инвертора РУЧНОЙ РЕЖИМ (см компрессор) в 0.01
 	_data.stepFreq = DEF_FC_STEP_FREQ;                 // Шаг уменьшения инвертора при достижении максимальной температуры, мощности и тока (см компрессор) в 0.01
 	_data.stepFreqBoiler = DEF_FC_STEP_FREQ_BOILER;    // Шаг уменьшения инвертора при достижении максимальной температуры, мощности и тока ГВС в 0.01
-	_data.dtTemp = DEF_FC_DT_TEMP;                     // Привышение температуры от уставок (подача) при которой срабатыват защита (уменьшается частота) в сотых градуса
-	_data.dtTempBoiler = DEF_FC_DT_TEMP_BOILER;        // Привышение температуры от уставок (подача) при которой срабатыват защита ГВС в сотых градуса
+	_data.dtTemp = DEF_FC_DT_TEMP;                     // Превышение температуры от уставок (подача) при которой срабатыват защита (уменьшается частота) в сотых градуса
+	_data.dtTempBoiler = DEF_FC_DT_TEMP_BOILER;        // Превышение температуры от уставок (подача) при которой срабатыват защита ГВС в сотых градуса
 	_data.PidMaxStep = 500;
-#ifdef FC_RETOIL_FREQ	
 	_data.ReturnOilMinFreq = FC_RETOIL_FREQ;
 	_data.ReturnOilFreq = 3000; // %
 	_data.ReturnOilPeriod = 1800000 / FC_TIME_READ;
 	_data.ReturnOilPerDivHz = 48000 / FC_TIME_READ;
 	_data.ReturnOilTime = FC_RETOIL_TIME;
-#endif
+	_data.MaxPower = FC_MAX_POWER;
+	_data.MaxPowerBoiler = FC_MAX_POWER_BOILER;
+
 	flags = 0x00;                                	   // флаги  0 - наличие FC
 	_data.setup_flags = 0;
 #ifndef FC_ANALOG_CONTROL
@@ -107,7 +109,7 @@ int8_t devVaconFC::initFC()
 	}
 	if(err == OK) {
 		// 10.Установить стартовую частоту
-		set_target(_data.startFreq, true, _data.minFreqUser, _data.maxFreqUser);// режим н знаем по этому границы развигаем
+		set_target(_data.startFreq, true, _data.minFreqUser, _data.maxFreqUser);// режим не знаем по этому границы развигаем
 	}
 	set_nominal_power();
 #endif // #ifndef FC_ANALOG_CONTROL
@@ -117,12 +119,24 @@ int8_t devVaconFC::initFC()
 // Вычисление номинальной мощности двигателя компрессора = U*sqrt(3)*I*cos, W
 void devVaconFC::set_nominal_power(void)
 {
+#ifdef FC_POWER_IN_PERCENT
+#ifndef FC_ANALOG_CONTROL
 	//nominal_power = (uint32_t) (400) * (700) / 100 * (75) / 100; // W
-	nominal_power = (uint32_t)read_0x03_16(FC_MOTOR_NVOLT) * 173 * read_0x03_16(FC_MOTOR_NA) / 100 * read_0x03_16(FC_MOTOR_NCOS) / 100 / 100;
+	typeof(nominal_power) n = nominal_power;
+	uint32_t pwr;
+	pwr = read_0x03_16(FC_MOTOR_NVOLT) * 173;
+	if(err) return;
+	pwr *= read_0x03_16(FC_MOTOR_NA);
+	if(err) return;
+	pwr = pwr / 100 * read_0x03_16(FC_MOTOR_NCOS) / 100 / 100;
+	if(err) return;
+	nominal_power = pwr;
 #ifdef FC_CORRECT_NOMINAL_POWER
 	nominal_power += FC_CORRECT_NOMINAL_POWER;
 #endif
-	journal.jprintf(" Nominal: %d W\n", nominal_power);
+	if(n != nominal_power) journal.jprintf(" FC Nominal power: %d W\n", nominal_power);
+#endif
+#endif
 }
 
 // Возвращает состояние, или ERR_LINK_FC, если нет связи по Modbus
@@ -144,7 +158,7 @@ int16_t devVaconFC::CheckLinkStatus(void)
     }
     return state;
 #else
-    return ERR_LINK_FC;
+    return OK;
 #endif
 }
 
@@ -156,41 +170,82 @@ int8_t devVaconFC::get_readState()
 		err = OK;
 		state = FC_S_RDY;
 		power = 600;
-		current = 555;
 		FC_curr_freq = 4000 + (int32_t)FC_target * 30 / 100;
 	} else {
 #ifndef FC_ANALOG_CONTROL // Не аналоговое управление
 		if(!get_present()) {
 			state = ERR_LINK_FC;
-			power = current = FC_curr_freq = 0;
+			power = FC_curr_freq = 0;
+#ifdef FC_MAX_CURRENT
+			current = 0;
+#endif
 			return err; // выходим если нет инвертора или нет связи
 		}
-		err = OK;
 		// Чтение состояния инвертора, при ошибке генерация общей ошибки ТН и останов
+#ifdef FC_VLT
+		state = read_0x03_32(FC_STATUS); // прочитать состояние
+#else
 		state = read_0x03_16(FC_STATUS); // прочитать состояние
+#endif
 		if(err) // Ошибка
 		{
 			state = ERR_LINK_FC; // признак потери связи с инвертором
-			power = current = FC_curr_freq = 0;
-#ifdef SPOWER
-			HP.sInput[SPOWER].Read(true);
-			if(HP.sInput[SPOWER].is_alarm()) return err;
+			power = FC_curr_freq = 0;
+#ifdef FC_MAX_CURRENT
+			current = 0;
 #endif
 			if(!GETBIT(flags, fOnOff)) return err; // Если не работаем, то и ошибку не генерим
+#if defined(SPOWER)
+			if(HP.NO_Power) return err;
+			HP.sInput[SPOWER].Read(true);
+			if(HP.sInput[SPOWER].is_alarm()) {
+				HP.sendCommand(pWAIT);
+				HP.NO_Power = 2;
+				return err;
+			}
+#endif
+#if defined(SGENERATOR)
+			HP.sInput[SGENERATOR].Read(true);
+			if(HP.sInput[SGENERATOR].get_Input() == HP.sInput[SGENERATOR].get_alarmInput()) {
+				HP.sendCommand(pWAIT);
+				SETBIT1(HP.flags, fHP_BackupNoPwrWAIT);
+				return err;
+			}
+#endif
 			SETBIT1(flags, fErrFC); // Блок инвертора
 			set_Error(err, name); // генерация ошибки
 			return err; // Возврат
 		}
 		if(GETBIT(flags, fOnOff)) { // ТН включил компрессор, проверяем состояние инвертора
 			if(state & FC_S_FLT) { // Действующий отказ
+#ifdef FC_VLT
+				uint32_t reg = read_0x03_32(FC_ERROR);
+				journal.jprintf("%s, Fault: %X - ", name);
+				get_fault_str(NULL, FC_Alarm_str, reg);
+#else
 				uint16_t reg = read_0x03_16(FC_ERROR);
-				journal.jprintf("%s, Fault: %s(%d) - ", name, err ? cError : get_fault_str(reg), err ? err : reg);
+				journal.jprintf("%s, Fault: %s(%d) - ", name, reg ? get_fault_str(reg) : cError, reg ? reg : err);
+#endif
 				err = ERR_FC_FAULT;
+				if(HP.NO_Power) return err;
+				if(GETBIT(HP.Option.flags, fBackupPower)) {
+//					HP.sendCommand(pWAIT);
+//					SETBIT1(HP.flags, fHP_BackupNoPwrWAIT);
+//					return err;
+					// Нужно перезапустить
+					if(HP.is_compressor_on()) {
+						if(get_present()) stop_FC(); else HP.dRelay[RCOMP].set_OFF();
+						HP.set_stopCompressor();
+					}
+					HP.sendCommand(pREPEAT_FAST);
+					return err;
+				}
 			} else if(get_startTime() && rtcSAM3X8.unixtime() - get_startTime() > FC_ACCEL_TIME / 100 && ((state & (FC_S_RDY | FC_S_RUN | FC_S_DIR)) != (FC_S_RDY | FC_S_RUN))) {
 				err = ERR_MODBUS_STATE;
 			}
 			if(err) {
 				set_Error(err, name); // генерация ошибки
+				return err;
 			}
 		} else if(state & FC_S_RUN) { // Привод работает, а не должен - останавливаем через модбас
 			if(rtcSAM3X8.unixtime() - HP.get_stopCompressor() > FC_DEACCEL_TIME / 100) {
@@ -201,15 +256,34 @@ int8_t devVaconFC::get_readState()
 		}
 		// Состояние прочитали и оно правильное все остальное читаем
 		{
-			FC_curr_freq = read_0x03_16(FC_FREQ); // прочитать текущую частоту
+			FC_curr_freq = read_0x03_16(FC_FREQ) * FC_FREQ_MUL; 	// прочитать текущую частоту
 			if(err == OK) {
-				power = read_0x03_16(FC_POWER); // прочитать мощность
+#ifdef FC_POWER_IN_PERCENT
+				power = (uint32_t)nominal_power * read_0x03_16(FC_POWER) / 1000; 	// прочитать мощность
+#else
+				power = read_0x03_16(FC_POWER); 	// прочитать мощность
+#endif
+#ifdef FC_MAX_CURRENT
+				if(err == OK) current = read_0x03_16(FC_CURRENT);
+#endif
 				if(err == OK) {
-					current = read_0x03_16(FC_CURRENT); // прочитать ток
-					err = Modbus.get_err(); // Скопировать ошибку
+					FC_Temp = read_0x03_16(FC_TEMP);
+					if(err == OK && _data.FC_MaxTemp && FC_Temp > _data.FC_MaxTemp) {
+						set_Error(err = ERR_MODBUS_VACON_TEMP, name); // генерация ошибки
+						return err;
+					}
+					if(_data.FC_TargetTemp) {
+#ifdef FC_VLT
+						if(FC_Temp > _data.FC_TargetTemp) write_0x06_16(FC_CONTROL, FC_C_COOLER_FAN | (state & FC_S_RUN ? FC_C_RUN : 0)); // подать команду
+						else if(FC_Temp < _data.FC_TargetTemp - FC_COOLER_FUN_HYSTERESIS) write_0x06_16(FC_CONTROL, (state & FC_S_RUN ? FC_C_RUN : 0)); // подать команду
+#else
+						if(FC_Temp > _data.FC_TargetTemp) write_0x06_16(FC_CONTROL, FC_C_COOLER_FAN); // подать команду
+						else if(FC_Temp < _data.FC_TargetTemp - FC_COOLER_FUN_HYSTERESIS) write_0x06_16(FC_CONTROL, 0); // подать команду
+#endif
+					}
 				}
 				if(GETBIT(_data.setup_flags,fLogWork) && GETBIT(flags, fOnOff)) {
-					journal.jprintf_time("FC: %Xh,%.2dHz,%.2dA,%.1d%%=%.3d\n", state, FC_curr_freq, current, power,	get_power());
+					journal.jprintf_time("FC: %Xh,%.2dHz,%.3d\n", state, FC_curr_freq, get_power());
 				}
 			}
 		}
@@ -231,16 +305,24 @@ int8_t devVaconFC::get_readState()
 					if(FC_curr_freq < _data.ReturnOilMinFreq && (FC_curr_freq < _data.maxFreqGen || !GETBIT(HP.Option.flags, fBackupPower))) {
 						if(++ReturnOilTimer >= _data.ReturnOilPeriod - (_data.ReturnOilMinFreq - FC_curr_freq) * _data.ReturnOilPerDivHz / 100) {
 							flags |= 1 << fFC_RetOilSt;
+#ifdef FC_VLT
+							err = write_0x06_16((uint16_t) FC_SET_SPEED, map(_data.ReturnOilFreq, 0, 10000, 0, 16384));
+#else
 							err = write_0x06_16((uint16_t) FC_SET_SPEED, _data.ReturnOilFreq);
+#endif
 							Adjust_EEV(_data.ReturnOilFreq - FC_target);
 							ReturnOilTimer = 0;
 						}
 					} else ReturnOilTimer = 0;
 				} else {
 					if(++ReturnOilTimer >= _data.ReturnOilTime) {
-						Adjust_EEV(_data.ReturnOilFreq - FC_target);
+						Adjust_EEV(FC_target - _data.ReturnOilFreq);
 						flags &= ~(1 << fFC_RetOilSt);
+#ifdef FC_VLT
+						err = write_0x06_16((uint16_t) FC_SET_SPEED, map(FC_target, 0, 10000, 0, 16384));
+#else
 						err = write_0x06_16((uint16_t) FC_SET_SPEED, FC_target);
+#endif
 						ReturnOilTimer = 0;
 					}
 				}
@@ -250,7 +332,9 @@ int8_t devVaconFC::get_readState()
 #else // Аналоговое управление
 		err = OK;
 		power = 0;
+	#ifdef FC_MAX_CURRENT
 		current = 0;
+	#endif
 #endif
 	}
 	return err;
@@ -296,26 +380,30 @@ int8_t devVaconFC::set_target(int16_t x, boolean show, int16_t _min, int16_t _ma
 #ifndef FC_ANALOG_CONTROL // Не аналоговое управление
 	// Запись в регистры инвертора установленной частоты
 	if(testMode == NORMAL || testMode == HARD_TEST){
+#ifdef FC_VLT
+		err = write_0x06_16((uint16_t)FC_SET_SPEED, map(x, 0, 10000, 0, 16384));
+#else
 		err = write_0x06_16((uint16_t)FC_SET_SPEED, x);
+#endif
 	}
 	if(err == OK) {
 		Adjust_EEV(x - FC_target);
 		FC_target = x;
 		if(show) journal.jprintf(" Set %s[%s]: %.2d%%\n", name, (char *)codeRet[HP.get_ret()], FC_target);
-	} else {  // генерация ошибки
+	} else if(err != ERR_NO_POWER_WHILE_WORK) {  // генерация ошибки
 		SETBIT1(flags, fErrFC);
 		set_Error(err, name);
 	}
 #else // Аналоговое управление
 	Adjust_EEV(x - FC_target);
 	FC_target = x;
-#ifdef FC_ANALOG_OFF_SET_0
-	if(!GETBIT(flags, fOnOff)) return err;
-#endif
 	dac = (int32_t)FC_target * (_data.level100 - _data.level0) / (100*100) + _data.level0;
 	switch (testMode) // РЕАЛЬНЫЕ Действия в зависимости от режима
 	{
 	case NORMAL:
+#ifdef FC_ANALOG_OFF_SET_0
+		if(!GETBIT(flags, fOnOff)) return err;
+#endif
 	case HARD_TEST:
 		analogWrite(pin, dac); //  все включаем
 		break;
@@ -337,6 +425,16 @@ bool devVaconFC::check_blockFC()
 #ifndef FC_ANALOG_CONTROL // Не аналоговое управление
     if(err != OK) {
         if(xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED || ++number_err >= FC_NUM_READ) { // если не запущена free rtos то блокируем с первого раза
+#ifdef USE_UPS
+			if(HP.NO_Power) return true;
+	#if defined(SPOWER)
+			HP.sInput[SPOWER].Read(true);
+			if(HP.sInput[SPOWER].is_alarm()) {
+				HP.HandleNoPower();
+				return true;
+			}
+	#endif
+#endif
             SETBIT1(flags, fErrFC); // Установить флаг
             note = (char*)noteFC_NO;
             set_Error(err, (char*)name); // Подъем ошибки на верх и останов ТН
@@ -349,18 +447,6 @@ bool devVaconFC::check_blockFC()
     }
 #endif
     return false;
-}
-
-// Установить значение текущий режим работы
-void  devVaconFC::set_testMode(TEST_MODE t)
-{
-	testMode = t;
-	if(t == SAFE_TEST || t == TEST) {
-		SETBIT0(flags, fErrFC);
-		err = OK;
-	} else {
-	    //CheckLinkStatus(); // проверка связи с инвертором
-	}
 }
 
 // Команда ход на инвертор (целевая скорость НЕ ВЫСТАВЛЯЕТСЯ)
@@ -376,10 +462,10 @@ int8_t devVaconFC::start_FC()
 	if(!get_present() || GETBIT(flags, fErrFC)) return err = ERR_MODBUS_BLOCK; // выходим если нет инвертора или он заблокирован по ошибке
     err = OK;
 #ifndef FC_ANALOG_CONTROL // Не аналоговое управление
-#ifdef DEMO
-#ifdef FC_USE_RCOMP // Использовать отдельный провод для команды ход/стоп
+ #ifdef DEMO
+  #ifdef FC_USE_RCOMP // Использовать отдельный провод для команды ход/стоп
     HP.dRelay[RCOMP].set_ON(); // ПЛОХО через глобальную переменную
-#endif // FC_USE_RCOMP
+  #endif // FC_USE_RCOMP
     if(err == OK) {
         SETBIT1(flags, fOnOff);
         startCompressor = rtcSAM3X8.unixtime();
@@ -389,16 +475,27 @@ int8_t devVaconFC::start_FC()
         SETBIT1(flags, fErrFC);
         set_Error(err, name);
     } // генерация ошибки
-#else // DEMO
+ #else // DEMO
     // set_target(FC_START_FC,true);  // Запись в регистр инвертора стартовой частоты  НЕ всегда скорость стартовая - супербойлер
 	if((state & FC_S_FLT)) { // Действующий отказ
+#ifdef FC_VLT
+		uint32_t reg = read_0x03_32(FC_ERROR);
+		journal.jprintf("%s, Fault: %X - ", name);
+		get_fault_str(NULL, FC_Alarm_str, reg);
+#else
 		uint16_t reg = read_0x03_16(FC_ERROR);
-		journal.jprintf("%s, Fault: %s(%d) - ", name, err ? cError : get_fault_str(reg), err ? err : reg);
+		journal.jprintf("%s, Fault: %s(%d) - ", name, reg ? get_fault_str(reg) : cError, reg ? reg : err);
+#endif
 		if(GETBIT(_data.setup_flags, fAutoResetFault)) { // Автосброс не критичного сбоя инвертора
 			if(!err) { // код считан успешно
+#ifdef FC_VLT
+				if((reg & ~FC_NonCriticalFaults) == 0)
+#else
 				uint8_t i = 0;
 				for(; i < sizeof(FC_NonCriticalFaults); i++) if(FC_NonCriticalFaults[i] == reg) break;
-				if(i < sizeof(FC_NonCriticalFaults)) {
+				if(i < sizeof(FC_NonCriticalFaults))
+#endif
+				{
 					if(reset_errorFC()) {
 						if((state & FC_S_FLT)) {
 							if(reset_errorFC() && (state & FC_S_FLT)) err = ERR_FC_FAULT; else journal.jprintf("Reseted(2).\n");
@@ -416,13 +513,15 @@ int8_t devVaconFC::start_FC()
 		}
 	}
 	if(err == OK) {
-#ifdef FC_USE_RCOMP // Использовать отдельный провод для команды ход/стоп
+	    set_nominal_power();
+  #ifdef FC_USE_RCOMP // Использовать отдельный провод для команды ход/стоп
 		HP.dRelay[RCOMP].set_ON();
-#else
-		err = write_0x06_16(FC_CONTROL, FC_C_RUN); // Команда Ход
-#endif
+  #else
+		uint16_t ctrl = read_0x03_16(FC_CONTROL);
+		if(!err) err = write_0x06_16(FC_CONTROL, (ctrl & FC_C_COOLER_FAN) | FC_C_RUN); // Команда Ход
+  #endif
 	}
-#endif // DEMO	
+ #endif // DEMO
     if(err == OK) {
 xStarted:
     	SETBIT1(flags, fOnOff);
@@ -430,32 +529,32 @@ xStarted:
         journal.jprintf(" %s[%s] ON\n", name, (char *)codeRet[HP.get_ret()]);
     } else {
         SETBIT1(flags, fErrFC);
-        set_Error(err, name);
-    } // генерация ошибки
+        set_Error(err, name);  // генерация ошибки
+    }
 #else //  FC_ANALOG_CONTROL
-#ifdef DEMO
-#ifdef FC_USE_RCOMP // Использовать отдельный провод для команды ход/стоп
+ #ifdef DEMO
+  #ifdef FC_USE_RCOMP // Использовать отдельный провод для команды ход/стоп
     HP.dRelay[RCOMP].set_ON(); // ПЛОХО через глобальную переменную
-#endif // FC_USE_RCOMP
+  #endif // FC_USE_RCOMP
 xStarted:
     SETBIT1(flags, fOnOff);
     startCompressor = rtcSAM3X8.unixtime();
     journal.jprintf(" %s ON\n", name);
-#else // DEMO
+ #else // DEMO
     // Боевая часть
     if((testMode == NORMAL) || (testMode == HARD_TEST)) //   Режим работа и хард тест, все включаем,
     {
-#ifdef FC_USE_RCOMP // Использовать отдельный провод для команды ход/стоп
+  #ifdef FC_USE_RCOMP // Использовать отдельный провод для команды ход/стоп
         HP.dRelay[RCOMP].set_ON(); // ПЛОХО через глобальную переменную
-#else
+  #else
         err = ERR_FC_CONF_ANALOG;
         SETBIT1(flags, fErrFC);
         set_Error(err, name); // Ошибка конфигурации
-#endif
-#ifdef FC_ANALOG_OFF_SET_0
+  #endif
+  #ifdef FC_ANALOG_OFF_SET_0
         dac = (int32_t)FC_target * (_data.level100 - _data.level0) / (100*100) + _data.level0;
         analogWrite(pin, dac);
-#endif
+  #endif
     }
 xStarted:
     SETBIT1(flags, fOnOff);
@@ -501,13 +600,14 @@ int8_t devVaconFC::stop_FC()
             startCompressor = 0;
             return err; // выходим если нет инвертора или нет связи
     	}
-  #ifdef MODBUS_PORT_NUM
-        err = write_0x06_16(FC_CONTROL, FC_C_STOP); // подать команду ход/стоп через модбас
+  #ifndef FC_USE_RCOMP
+		uint16_t ctrl = read_0x03_16(FC_CONTROL);
+		if(!err) err = write_0x06_16(FC_CONTROL, (ctrl & FC_C_COOLER_FAN) | FC_C_STOP); // подать команду ход/стоп через модбас
   #else
         err = OK;
   #endif
     }
-    if(err == OK) {
+    if(err == OK || err == ERR_NO_POWER_WHILE_WORK) {
         journal.jprintf(" %s[%s] OFF\n", name, (char *)codeRet[HP.get_ret()]);
         SETBIT0(flags, fOnOff);
         startCompressor = 0;
@@ -547,6 +647,20 @@ int8_t devVaconFC::stop_FC()
 	return err;
 }
 
+// Получить текущий ток, сотые
+uint16_t devVaconFC::get_current()
+{
+#ifdef FC_MAX_CURRENT
+	  return current;
+#else
+	#ifndef FC_ANALOG_CONTROL
+	  return (testMode == NORMAL || testMode == HARD_TEST) ? read_0x03_16(FC_CURRENT) : 0;
+	#else
+	  return 0;
+	#endif
+#endif
+}
+
 // Получить параметр инвертора в виде строки, результат ДОБАВЛЯЕТСЯ в ret
 void devVaconFC::get_paramFC(char *var,char *ret)
 {
@@ -554,13 +668,15 @@ void devVaconFC::get_paramFC(char *var,char *ret)
 	ret += m_strlen(ret);
     if(strcmp(var,fc_ON_OFF)==0)                { if (GETBIT(flags,fOnOff))  strcat(ret,(char*)cOne);else  strcat(ret,(char*)cZero); } else
     if(strcmp(var,fc_INFO)==0)                  {
-    	                                        #ifndef FC_ANALOG_CONTROL  
+#ifndef FC_ANALOG_CONTROL
     	                                        get_infoFC(ret);
-    	                                        #else
-                                                 strcat(ret, "|Данные не доступны, управление через ") ;
-                                                 if((g_APinDescription[pin].ulPinAttribute & PIN_ATTR_ANALOG) == PIN_ATTR_ANALOG) strcat(ret, "аналоговый"); else strcat(ret, "ШИМ");
-                                                 strcat(ret, " выход|;");
-                                                #endif              
+#else
+                                                strcat(ret, "|Данные не доступны, управление через ") ;
+                                                if((g_APinDescription[pin].ulPinAttribute & PIN_ATTR_ANALOG) == PIN_ATTR_ANALOG) strcat(ret, "аналоговый"); else strcat(ret, "ШИМ");
+                                                strcat(ret, " выход D");
+                                                _itoa(PIN_DEVICE_FC, ret);
+                                                strcat(ret, "|;");
+#endif
     	                                        } else
     if(strcmp(var,fc_NAME)==0)                  {  strcat(ret,name);             } else
     if(strcmp(var,fc_NOTE)==0)                  {  strcat(ret,note);             } else
@@ -570,7 +686,7 @@ void devVaconFC::get_paramFC(char *var,char *ret)
     if(strcmp(var,fc_INFO1)==0)                 {  _dtoa(ret, FC_target, 2); strcat(ret, "%"); } else
     if(strcmp(var,fc_cFC)==0)                   {  _dtoa(ret, FC_curr_freq, 2); strcat(ret, " Гц"); } else // Текущая частота!
     if(strcmp(var,fc_cPOWER)==0)                {  _itoa(get_power(), ret); } else
-    if(strcmp(var,fc_cCURRENT)==0)              {  _dtoa(ret, current, 2); } else
+    if(strcmp(var,fc_cCURRENT)==0)              {  _dtoa(ret, get_current(), 2); } else
     if(strcmp(var,fc_AUTO_RESET_FAULT)==0)      {  strcat(ret,(char*)(GETBIT(_data.setup_flags,fAutoResetFault) ? cOne : cZero)); } else
     if(strcmp(var,fc_LogWork)==0)      			{  strcat(ret,(char*)(GETBIT(_data.setup_flags,fLogWork) ? cOne : cZero)); } else
     if(strcmp(var,fc_fFC_RetOil)==0)   			{  strcat(ret,(char*)(GETBIT(_data.setup_flags,fFC_RetOil) ? cOne : cZero)); } else
@@ -591,6 +707,9 @@ void devVaconFC::get_paramFC(char *var,char *ret)
     if(strcmp(var,fc_DAC)==0)                   {  _itoa(dac,ret);          } else
     if(strcmp(var,fc_LEVEL0)==0)                {  _itoa(_data.level0,ret);       } else
     if(strcmp(var,fc_LEVEL100)==0)              {  _itoa(_data.level100,ret);     } else
+#endif
+#ifdef DEFROST
+   	if(strcmp(var,fc_defrostFreq)==0)           {  _dtoa(ret, _data.defrostFreq, 2); } else // %
 #endif
     if(strcmp(var,fc_BLOCK)==0)                 { if (GETBIT(flags,fErrFC))  strcat(ret,(char*)cYes); } else
     if(strcmp(var,fc_ERROR)==0)                 {  _itoa(err,ret);          } else
@@ -618,7 +737,12 @@ void devVaconFC::get_paramFC(char *var,char *ret)
    	if(strcmp(var, fc_FC_TIME_READ)==0)   		{  _itoa(FC_TIME_READ, ret); } else
    	if(strcmp(var, fc_PidMaxStep)==0)   		{  _dtoa(ret, _data.PidMaxStep, 2); } else
     if(strcmp(var, fc_AdjustEEV_k)==0)			{  _dtoa(ret, _data.AdjustEEV_k, 2); } else
-     if(strcmp(var, fc_ReturnOil_AdjustEEV_k)==0){ _dtoa(ret, _data.ReturnOil_AdjustEEV_k, 2); } else
+    if(strcmp(var, fc_ReturnOil_AdjustEEV_k)==0){  _dtoa(ret, _data.ReturnOil_AdjustEEV_k, 2); } else
+   	if(strcmp(var, fc_MaxPower)==0)  			{  _itoa(_data.MaxPower, ret); } else
+   	if(strcmp(var, fc_MaxPowerBoiler)==0)		{  _itoa(_data.MaxPowerBoiler, ret); } else
+   	if(strcmp(var, fc_FC_MaxTemp)==0)  			{  _itoa(_data.FC_MaxTemp, ret); } else
+   	if(strcmp(var, fc_FC_TargetTemp)==0) 		{  _itoa(_data.FC_TargetTemp, ret); } else
+   	if(strcmp(var, fc_FC_C_COOLER_FAN_STR)==0)	{  strcat(ret, FC_C_COOLER_FAN_STR); } else
 
     strcat(ret,(char*)cInvalid);
 }
@@ -627,7 +751,7 @@ void devVaconFC::get_paramFC(char *var,char *ret)
 boolean devVaconFC::set_paramFC(char *var, float f)
 {
 	int16_t x = f;
-    if(strcmp(var,fc_ON_OFF)==0)                { if (x==0) stop_FC();else start_FC();return true;  } else 
+    if(strcmp(var,fc_ON_OFF)==0)                { if(x == 0) stop_FC(); else start_FC(); return true; } else
     if(strcmp(var,fc_AUTO_RESET_FAULT)==0)      { _data.setup_flags = (_data.setup_flags & ~(1<<fAutoResetFault)) | ((x!=0)<<fAutoResetFault); return true;  } else
     if(strcmp(var,fc_LogWork)==0)               { _data.setup_flags = (_data.setup_flags & ~(1<<fLogWork)) | ((x!=0)<<fLogWork); return true;  } else
     if(strcmp(var,fc_fFC_RetOil)==0)            { _data.setup_flags = (_data.setup_flags & ~(1<<fFC_RetOil)) | ((x!=0)<<fFC_RetOil); return true;  } else
@@ -636,15 +760,19 @@ boolean devVaconFC::set_paramFC(char *var, float f)
     if(strcmp(var,fc_LEVEL100)==0)              { if ((x>=0)&&(x<=4096)) { _data.level100=x; return true;} else return false;    } else
 #endif
     if(strcmp(var,fc_BLOCK)==0)                 { SemaphoreGive(xModbusSemaphore); // отдать семафор ВСЕГДА  
-                                                if(x==0) { if(reset_FC()) note=(char*)noteFC_OK; }
-                                                else     { SETBIT1(flags,fErrFC); note=(char*)noteFC_NO; }
-                                                return true;            
+                                                	if(x==0) { if(reset_FC()) note=(char*)noteFC_OK; }
+                                                	else     { SETBIT1(flags,fErrFC); note=(char*)noteFC_NO; }
+                                                	return true;
                                                 } else  // только чтение
     if(strcmp(var,fc_UPTIME)==0)                { if((x>=1)&&(x<650)){_data.Uptime=x;return true; } else return false; } else   // хранение в сек
     if(strcmp(var,fc_ReturnOilPeriod)==0)       { _data.ReturnOilPeriod = (int16_t) x / (FC_TIME_READ/1000); return true; } else
     if(strcmp(var,fc_ReturnOilPerDivHz)==0)     { _data.ReturnOilPerDivHz = (int16_t) x / (FC_TIME_READ/1000); return true; } else
     if(strcmp(var,fc_ReturnOilTime)==0)         { _data.ReturnOilTime = (int16_t) x / (FC_TIME_READ/1000); return true; } else
     if(strcmp(var,fc_PID_STOP)==0)              { if((x>=0)&&(x<=100)){_data.PidStop=x;return true; } else return false;  } else
+    if(strcmp(var,fc_MaxPower)==0)  		    { _data.MaxPower = x; return true; } else
+    if(strcmp(var,fc_MaxPowerBoiler)==0)	    { _data.MaxPowerBoiler = x; return true; } else
+    if(strcmp(var,fc_FC_MaxTemp)==0)  		    { _data.FC_MaxTemp = x; return true; } else
+    if(strcmp(var,fc_FC_TargetTemp)==0)  	    { _data.FC_TargetTemp = x; return true; } else
    
 	x = rd(f, 100);
     	if(strcmp(var,fc_DT_COMP_TEMP)==0)          { if(x>=0 && x<2500){_data.dtCompTemp=x;return true; } else return false; } else // градусы
@@ -669,6 +797,9 @@ boolean devVaconFC::set_paramFC(char *var, float f)
 		if(strcmp(var,fc_ReturnOilFreq)==0)         { _data.ReturnOilFreq = x; return true; } else
 		if(strcmp(var,fc_AdjustEEV_k)==0)           { _data.AdjustEEV_k = x; return true; } else
 		if(strcmp(var,fc_ReturnOil_AdjustEEV_k)==0) { _data.ReturnOil_AdjustEEV_k = x; return true; } else
+#ifdef DEFROST
+		if(strcmp(var,fc_defrostFreq)==0) 			{ _data.defrostFreq = x; return true; } else
+#endif
 		if(strcmp(var,fc_STEP_FREQ_BOILER)==0)      { if(x>=0 && x<10000){_data.stepFreqBoiler=x;return true; } } // %
  
     return false;
@@ -677,6 +808,25 @@ boolean devVaconFC::set_paramFC(char *var, float f)
 // Вывести в buffer строковый статус.
 void devVaconFC::get_infoFC_status(char *buffer, uint16_t st)
 {
+#ifdef FC_VLT
+	if((st & FC_S_CONTROL_RDY) == 0) strcat(buffer, FC_S_CONTROL_RDY_str0);
+	if(st & FC_S_RDY) 		strcat(buffer, FC_S_RDY_str);
+	if(st & FC_S_START) 	strcat(buffer, FC_S_START_str);
+	if(st & FC_S_RUN) 	{
+		strcat(buffer, FC_S_RUN_str);
+		if((st & FC_S_AREF)==0)	strcat(buffer, FC_S_AREF_str0);
+	}
+	if(st & FC_S_TRIP) 		strcat(buffer, FC_S_TRIP_str);
+	if(st & FC_S_TRIPLOCK) 	strcat(buffer, FC_S_TRIPLOCK_str);
+	if(!(st & FC_S_BUS)) 	strcat(buffer, FC_S_BUS_str0);
+	if(st & FC_S_FREQ_LIM) 	strcat(buffer, FC_S_FREQ_LIM_str);
+	if(st & FC_S_OVERTEMP) 	strcat(buffer, FC_S_OVERTEMP_str);
+	if(st & FC_S_VOLTAGE) 	strcat(buffer, FC_S_VOLTAGE_str);
+	if(st & FC_S_CURRENT) 	strcat(buffer, FC_S_CURRENT_str);
+	if(st & FC_S_HEAT) 		strcat(buffer, FC_S_HEAT_str);
+	if(st & FC_S_FLT) 		strcat(buffer, FC_S_FLT_str);
+	if(st & FC_S_W) 		strcat(buffer, FC_S_W_str);
+#else //FC_VLT
 	if(st & FC_S_RDY) 	strcat(buffer, FC_S_RDY_str);
 	if(st & FC_S_RUN) 	{
 		strcat(buffer, FC_S_RUN_str);
@@ -686,7 +836,9 @@ void devVaconFC::get_infoFC_status(char *buffer, uint16_t st)
 	if(st & FC_S_FLT) 	strcat(buffer, FC_S_FLT_str);
 	if(st & FC_S_W) 	strcat(buffer, FC_S_W_str);
 	if(st & FC_S_Z) 	strcat(buffer, FC_S_Z_str);
-	if(st) *(buffer + m_strlen(buffer) - 1) = '\0'; // skip last ','
+#endif
+	int i = m_strlen(buffer);
+	if(i) *(buffer + i - 1) = '\0'; // skip last ','
 }
 
 // Получить информацию о частотнике
@@ -698,10 +850,49 @@ void devVaconFC::get_infoFC(char* buf)
 		if(state == ERR_LINK_FC) {   // Нет связи
 			strcat(buf, "|Данные не доступны - нет связи|;");
 		} else {
+#ifdef FC_VLT
+			strcat(buf, "16-00|Состояние инвертора: ");
+			get_infoFC_status(buf + m_strlen(buf), state);
+			buf += m_snprintf(buf += m_strlen(buf), 256, "|0x%X;", state);
+			if(err == OK) {
+				buf += m_snprintf(buf, 256, "16-01|Фактическая скорость|%d%%;16-10|Выходная мощность (кВт)|%d;", read_0x03_16(FC_SPEED), get_power());
+				buf += m_snprintf(buf, 256, "16-17|Обороты (об/м)|%d;", (int16_t)read_0x03_16(FC_RPM));
+				buf += m_snprintf(buf, 256, "16-22|Крутящий момент|%d%%;", (int16_t)read_0x03_16(FC_TORQUE));
+				buf += m_snprintf(buf, 256, "16-12|Выходное напряжение (В)|%.1d;", (int16_t)read_0x03_16(FC_VOLTAGE));
+				buf += m_snprintf(buf, 256, "16-30|Напряжение шины постоянного тока (В)|%d;", (int16_t)read_0x03_16(FC_VOLTAGE_DC));
+				buf += m_snprintf(buf, 256, "16-34|Температура радиатора (°С)|%d;", read_tempFC());
+				buf += m_snprintf(buf, 256, "15-00|Время включения инвертора (часов)|%d;", read_0x03_32(FC_POWER_HOURS));
+				buf += m_snprintf(buf, 256, "15-01|Время работы компрессора (часов)|%d;", read_0x03_32(FC_RUN_HOURS));
+				buf += m_snprintf(buf, 256, "15-02|Итого выход кВтч|%d;", read_0x03_16(FC_CNT_POWER));
+
+				uint32_t reg = read_0x03_32(FC_ERROR);
+				if(err == OK) {
+					strcat(buf, "16-90|Ошибки (");
+					get_fault_str(buf, FC_Alarm_str, reg);
+					buf += m_snprintf(buf += strlen(buf), 256, ")|0x%X;", reg);
+					strcat(buf, "16-92|Предупреждения (");
+					reg = read_0x03_32(FC_WARNING);
+					get_fault_str(buf, FC_Warning_str, reg);
+					buf += m_snprintf(buf += strlen(buf), 256, ")|0x%X;", reg);
+					strcat(buf, "16-94|Статус (");
+					reg = read_0x03_32(FC_EX_STATUS);
+					get_fault_str(buf, FC_ExtStatus_str, reg);
+					buf += m_snprintf(buf += strlen(buf), 256, ")|0x%X;", reg);
+#ifdef FC_EX_STATUS2
+					strcat(buf, "16-94|Статус2 (");
+					reg = read_0x03_32(FC_EX_STATUS2);
+					get_fault_str(buf, FC_ExtStatus2_str, reg);
+					buf += m_snprintf(buf += strlen(buf), 256, ")|0x%X;", reg);
+#endif
+				} else {
+					m_snprintf(buf, 256, "-|Ошибка Modbus|%d;", err);
+				}
+			}
+#else //FC_VLT
 			uint32_t i;
 			strcat(buf, "2101|Состояние инвертора: ");
 			get_infoFC_status(buf + m_strlen(buf), state);
-			buf += m_snprintf(buf += m_strlen(buf), 256, "|%Xh;", state);
+			buf += m_snprintf(buf += m_strlen(buf), 256, "|0x%X;", state);
 			if(err == OK) {
 				buf += m_snprintf(buf, 256, "2103|Фактическая скорость|%.2d%%;2108 (V1.1)|Выходная мощность: %.1d%% (кВт)|%.3d;", read_0x03_16(FC_SPEED), power, get_power());
 				buf += m_snprintf(buf, 256, "2105 (V1.3)|Обороты (об/м)|%d;", (int16_t)read_0x03_16(FC_RPM));
@@ -722,12 +913,14 @@ void devVaconFC::get_infoFC(char* buf)
 					m_snprintf(buf, 256, "-|Ошибка Modbus|%d;", err);
 				}
 			}
+#endif
 		}
 #endif
 	} else {
 		m_snprintf(buf, 256, "|Режим тестирования!|;");
 	}
 }
+
 // Сброс сбоя инвертора
 boolean devVaconFC::reset_errorFC()
 {
@@ -755,7 +948,7 @@ boolean devVaconFC::reset_FC()
     else
 #endif
     {
-		reset_errorFC();
+    	if(testMode == NORMAL || testMode == HARD_TEST) reset_errorFC();
     }
     return err == OK;
 }
@@ -773,12 +966,14 @@ inline int16_t devVaconFC::read_stateFC()
 // Tемпература радиатора, C
 int16_t devVaconFC::read_tempFC()
 {
-#ifndef FC_ANALOG_CONTROL // НЕ АНАЛОГОВОЕ УПРАВЛЕНИЕ
-    return read_0x03_16(FC_TEMP);
-#else
-    return 0;
-#endif
+	return FC_Temp;
+//#ifndef FC_ANALOG_CONTROL // НЕ АНАЛОГОВОЕ УПРАВЛЕНИЕ
+//    return read_0x03_16(FC_TEMP);
+//#else
+//    return 0;
+//#endif
 }
+
 // Функции общения по модбас инвертора Чтение регистров
 #ifndef FC_ANALOG_CONTROL // НЕ АНАЛОГОВОЕ УПРАВЛЕНИЕ
 // Функция 0х03 прочитать 2 байта, возвращает значение, ошибка обновляется
@@ -791,19 +986,27 @@ int16_t devVaconFC::read_0x03_16(uint16_t cmd)
     for (i = 0; i < FC_NUM_READ; i++) // делаем FC_NUM_READ попыток чтения Чтение состояния инвертора, при ошибке генерация общей ошибки ТН и останов
     {
         err = Modbus.readHoldingRegisters16(FC_MODBUS_ADR, cmd - 1, (uint16_t *)&result); // Послать запрос, Нумерация регистров с НУЛЯ!!!!
-        if(err == OK) break; // Прочитали удачно
+        if(err == OK) {
+        	check_blockFC();
+        	break; // Прочитали удачно
+        }
 #ifdef SPOWER
         HP.sInput[SPOWER].Read(true);
-        if(HP.sInput[SPOWER].is_alarm()) break;
+        if(HP.sInput[SPOWER].is_alarm()) {
+        	err = ERR_NO_POWER_WHILE_WORK;
+        	break;
+        }
 #endif
-        if(GETBIT(HP.Option.flags, fBackupPower)) break;
+        if(GETBIT(HP.Option.flags, fBackupPower)) {
+        	err = ERR_NO_POWER_WHILE_WORK;
+        	break;
+        }
         if(state == ERR_LINK_FC) {
         	result = ERR_LINK_FC;
         	break;
         }
         numErr++; // число ошибок чтение по модбасу
-        journal.jprintf("Modbus reg #%d - ", cmd);
-        journal.jprintf_time(cErrorRS485, name, __FUNCTION__, err); // Выводим сообщение о повторном чтении
+        if(number_err == FC_NUM_READ-1 || GETBIT(HP.Option.flags, fModbusLogErrors)) journal.jprintf_time(cErrorRS485, name, __FUNCTION__, cmd, err); 	// Сообщение об ошибке
         if(check_blockFC()) break; // проверить необходимость блокировки
         _delay(FC_DELAY_REPEAT);
     }
@@ -820,18 +1023,27 @@ uint32_t devVaconFC::read_0x03_32(uint16_t cmd)
     for (i = 0; i < FC_NUM_READ; i++) // делаем FC_NUM_READ попыток чтения Чтение состояния инвертора, при ошибке генерация общей ошибки ТН и останов
     {
         err = Modbus.readHoldingRegisters32(FC_MODBUS_ADR, cmd - 1, (uint32_t *)&result); // Послать запрос, Нумерация регистров с НУЛЯ!!!!
-        if(err == OK) break; // Прочитали удачно
+        if(err == OK) {
+        	check_blockFC();
+        	break; // Прочитали удачно
+        }
 #ifdef SPOWER
         HP.sInput[SPOWER].Read(true);
-        if(HP.sInput[SPOWER].is_alarm()) break;
+        if(HP.sInput[SPOWER].is_alarm()) {
+        	err = ERR_NO_POWER_WHILE_WORK;
+        	break;
+        }
 #endif
-        if(GETBIT(HP.Option.flags, fBackupPower)) break;
+        if(GETBIT(HP.Option.flags, fBackupPower)) {
+        	err = ERR_NO_POWER_WHILE_WORK;
+        	break;
+        }
         if(state == ERR_LINK_FC) {
         	result = ERR_LINK_FC;
         	break;
         }
         numErr++; // число ошибок чтение по модбасу
-        journal.jprintf_time(cErrorRS485, name, __FUNCTION__, err); // Выводим сообщение о повторном чтении
+        if(number_err == FC_NUM_READ-1 || GETBIT(HP.Option.flags, fModbusLogErrors)) journal.jprintf_time(cErrorRS485, name, __FUNCTION__, cmd, err); 	// Сообщение об ошибке
         if(check_blockFC()) break; // проверить необходимость блокировки
         _delay(FC_DELAY_REPEAT);
     }
@@ -847,9 +1059,26 @@ int8_t devVaconFC::write_0x06_16(uint16_t cmd, uint16_t data)
     for (i = 0; i < FC_NUM_READ; i++) // делаем FC_NUM_READ попыток записи
     {
         err = Modbus.writeHoldingRegisters16(FC_MODBUS_ADR, cmd - 1, data); // послать запрос, Нумерация регистров с НУЛЯ!!!!
-        if(err == OK) break; // Записали удачно
+        if(err == OK) {
+        	check_blockFC();
+        	break; // Записали удачно
+        }
+#ifdef SPOWER
+        HP.sInput[SPOWER].Read(true);
+        if(HP.sInput[SPOWER].is_alarm()) {
+        	err = ERR_NO_POWER_WHILE_WORK;
+        	break;
+        }
+#endif
+        if(GETBIT(HP.Option.flags, fBackupPower)) {
+        	err = ERR_NO_POWER_WHILE_WORK;
+        	break;
+        }
+        if(state == ERR_LINK_FC) {
+        	break;
+        }
         numErr++; // число ошибок чтение по модбасу
-        journal.jprintf_time(cErrorRS485, name, __FUNCTION__, err); // Выводим сообщение о повторном чтении
+        if(number_err == FC_NUM_READ-1 || GETBIT(HP.Option.flags, fModbusLogErrors)) journal.jprintf_time(cErrorRS485, name, __FUNCTION__, cmd, err); 	// Сообщение об ошибке
         if(check_blockFC()) break; // проверить необходимость блокировки
         _delay(FC_DELAY_REPEAT);
     }
@@ -857,6 +1086,25 @@ int8_t devVaconFC::write_0x06_16(uint16_t cmd, uint16_t data)
 }
 #endif // FC_ANALOG_CONTROL    // НЕ АНАЛОГОВОЕ УПРАВЛЕНИЕ
 
+#ifdef FC_VLT
+// Возвращает строкове представление ошибки или предупреждения
+void devVaconFC::get_fault_str(char *ret, const char *arr[], uint32_t code)
+{
+	uint8_t i = 0;
+	while(code && arr[i] != NULL) {
+		if(code & 1) {
+			if(ret == NULL) {
+				journal.jprintf("%s,", arr[i]);
+			} else {
+				strcat(ret, arr[i]);
+				strcat(ret, ",");
+			}
+		}
+		i++;
+		code >>= 1;
+	}
+}
+#else //FC_VLT
 // Возвращает текст ошибки по FT коду
 const char* devVaconFC::get_fault_str(uint8_t fault)
 {
@@ -866,3 +1114,4 @@ const char* devVaconFC::get_fault_str(uint8_t fault)
     }
     return FC_Faults_str[i];
 }
+#endif

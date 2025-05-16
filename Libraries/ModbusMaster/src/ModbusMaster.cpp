@@ -1,6 +1,6 @@
 /*
 Доработка библиотеки для "Народного контроллера теплового насоса"
-Автор pav2000  firstlast2007@gmail.com
+pav2000  firstlast2007@gmail.com
 Добавлены изменения для работы с инвертором Omron MX2
 - поддерживается функция проверки связи (код функции 0х08)
 для проверки функции используйте   LinkTestOmronMX2Only(code)
@@ -46,6 +46,8 @@ ModbusMaster::ModbusMaster(void)
   _preTransmission = 0;
   _postTransmission = 0;
   last_transaction_time = 0;
+  ModbusMinTimeBetweenTransaction = 20; // ms
+  ModbusResponseTimeout = 200; // ms
 }
 
 /**
@@ -574,6 +576,9 @@ uint8_t  ModbusMaster::LinkTestOmronMX2Only(uint16_t code)
 }
 
 /* _____PRIVATE FUNCTIONS____________________________________________________ */
+#ifdef MODBUSMASTER_DEBUG
+uint32_t MBDEBUGTM = 0;
+#endif
 
 /**
 Modbus transaction engine.
@@ -596,19 +601,21 @@ uint8_t ModbusMaster::ModbusMasterTransaction(uint8_t u8MBFunction)
   uint8_t u8BytesLeft = 8;             // число оставшихся байт для чтения (минимальна длина ответа??)
   uint8_t u8MBStatus = ku8MBSuccess;   // текущий статус
   
-  if((u32StartTime = millis() - last_transaction_time) < MIN_TIME_BETWEEN_TRANSACTION) {
 #ifdef MODBUSMASTER_DEBUG
-	  Serial.print("#");
+   Serial.print("MB"); Serial.print(_u8MBSlave);
 #endif
-	  u32StartTime = MIN_TIME_BETWEEN_TRANSACTION - u32StartTime;
+  if((u32StartTime = millis() - last_transaction_time) < ModbusMinTimeBetweenTransaction) {
+#ifdef MODBUSMASTER_DEBUG
+	  Serial.print('#');
+#endif
 #ifdef MODBUS_FREERTOS
-	  while(u32StartTime--) if(xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) vTaskDelay(1); else delay(1);
+	  if(xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) vTaskDelay(ModbusMinTimeBetweenTransaction - u32StartTime); else delay(ModbusMinTimeBetweenTransaction - u32StartTime);
 #else
-	  while(u32StartTime--) delay(1);
+	  delay(ModbusMinTimeBetweenTransaction - u32StartTime);
 #endif
   }
 #ifdef MODBUSMASTER_DEBUG
-   Serial.print("MB"); Serial.print(_u8MBSlave); Serial.print(": ");
+   Serial.print(':');
 #endif
   // assemble Modbus Request Application Data Unit (ADU)
   // Сборка блока запроса Modbus Application Data (ADU)
@@ -715,29 +722,37 @@ uint8_t ModbusMaster::ModbusMasterTransaction(uint8_t u8MBFunction)
   u8ModbusADU[u8ModbusADUSize++] = highByte(u16CRC);
   u8ModbusADU[u8ModbusADUSize] = 0;
 
+#ifdef MODBUSMASTER_DEBUG
+   Serial.print(" S: "); Serial.print(millis() - MBDEBUGTM); Serial.print(' ');
+   MBDEBUGTM = millis();
+   int c;
+   while((c = _serial->read()) != -1) {
+	   Serial.print(c, HEX); Serial.print("h ");
+   }
+#else
+
   // flush receive buffer before transmitting request
   // Очистка приемного буфера перед передачей запроса
-  while (_serial->read() != -1);
+  while(_serial->read() != -1);
+#endif
 
   // transmit request
   // вызов функции перед началом передачи - дернуть ногу передачи max485 (помним про полудуплекс)
   if (_preTransmission)  { _preTransmission();  }
-
   // передаем данные
   for (i = 0; i < u8ModbusADUSize; i++)
   {
     _serial->write(u8ModbusADU[i]);
   }
-
-   _serial->flush();           // Очистить передающий буфер
-  // вызов функции в конце передачи - дернуть ногу передачи max485 + задержка перед чтением(помним про полудуплекс)
+  //_serial->flush();           // Очистить передающий буфер -> теперь в _postTransmission()
   if (_postTransmission)  { _postTransmission(); }
 
   // -------------------- ЧТЕНИЕ ОТВЕТА --------------------------------------
    u8ModbusADUSize = 0;       // Сбросить длину буфера
 
 #ifdef MODBUSMASTER_DEBUG
-   Serial.print("St: "); Serial.print(millis()); Serial.print(" ");
+   Serial.print(" R: "); Serial.print(millis() - MBDEBUGTM); Serial.print(" ");
+   MBDEBUGTM = millis();
 #endif
 
   // Цикл чтения из входного буфера пока нет ошибок и не прошло время ожидания
@@ -747,7 +762,10 @@ uint8_t ModbusMaster::ModbusMasterTransaction(uint8_t u8MBFunction)
 	   if(_serial->available())    // есть символы во входном буфере
 	   {
 #ifdef MODBUSMASTER_DEBUG
-		   if(u8ModbusADUSize == 0) { Serial.print("1: "); Serial.print(millis()); Serial.print(" "); }
+		   if(u8ModbusADUSize == 0) {
+			   Serial.print(" 1: "); Serial.print(millis() - MBDEBUGTM); Serial.print(" ");
+			   MBDEBUGTM = millis();
+		   }
 #endif
 		   u8ModbusADU[u8ModbusADUSize++] = _serial->read();
 		   u8BytesLeft--;   // байт прочли уменьшили счетчик
@@ -813,7 +831,7 @@ uint8_t ModbusMaster::ModbusMasterTransaction(uint8_t u8MBFunction)
 	   } // if (u8ModbusADUSize == 5)
 
 	   // проверка привышения времени ожидания
-	   if((millis() - u32StartTime) > ku16MBResponseTimeout) {
+	   if((millis() - u32StartTime) > ModbusResponseTimeout) {
 		   u8MBStatus = ku8MBResponseTimedOut;
 		   break;
 	   }
@@ -898,7 +916,8 @@ uint8_t ModbusMaster::ModbusMasterTransaction(uint8_t u8MBFunction)
   _u8ResponseBufferIndex = 0;
   last_transaction_time = millis();
 #ifdef MODBUSMASTER_DEBUG
-  Serial.print(" E: "); Serial.println(millis());
+  Serial.print(" E: "); Serial.println(millis() - MBDEBUGTM);
+  MBDEBUGTM = millis();
 #endif
   return u8MBStatus;
 }

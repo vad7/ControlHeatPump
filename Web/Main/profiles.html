@@ -1,4 +1,4 @@
-<html>
+<html lang="ru">
 <head> 
 	<title>Управление профилями. Народный контроллер ТН</title>
 	<meta charset="utf-8" />
@@ -7,7 +7,7 @@
 	<script type='text/javascript' src='scripts.js'></script>
 	<script type="text/javascript">
 		window.onload = function() {
-			loadParam("get_Prof(ID),get_Prof(NAME),get_Prof(DATE),get_Prof(CRC16),get_Prof(NOTE),get_Prof(ENABLE),get_Prof(NUM)");
+			loadParam("get_Prof(ID),get_Prof(NAME),get_Prof(DATE),get_Prof(NOTE),get_Prof(ENABLE),get_Prof(NUM)");
 		};
 		function loadParam_after(paramid) {
 			if(paramid.match(/^eraseProfile|^loadProfile|^set_SAVE/)) location.reload();
@@ -62,7 +62,7 @@
 	</div>
 	<div class="row1">
 		<h2>Таблица профилей</h2>
-		<table>
+		<table border="1" rules="rows">
 		<thead>
 		<tr>
 			<th>Номер профиля</th>

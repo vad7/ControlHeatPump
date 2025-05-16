@@ -1,15 +1,26 @@
-<html>
-<head>
-	<title>Настройка даты и времени. Народный контроллер ТН</title>
-	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<link rel="stylesheet" type="text/css" href="style.css">
-	<script type='text/javascript' src='scripts.js'></script>
-	<script type="text/javascript">
-		window.onload = function() {
-		loadParam("get_NTP,get_NTPr,get_datetime(UPDATE_I2C),get_datetime(DATE),get_datetime(TIME),get_datetime(NTP),get_datetime(UPDATE)");
-	};
-	</script>
+<html lang="ru"><head>
+<title>Настройка даты и времени. Народный контроллер ТН</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" type="text/css" href="style.css">
+<script type='text/javascript' src='scripts.js'></script>
+<script type="text/javascript">
+window.onload = function() {
+	loadParam("get_NTP,get_NTPr,get_datetime(UPDATE_I2C),get_datetime(DATE),get_datetime(TIME),get_datetime(NTP),get_datetime(UPDATE),get_datetime(UHTTP)");
+}
+function loadParam_after(paramid) {
+	if(paramid.indexOf("get_WORK")!=-1) {
+		var element = document.getElementById('onoffswitch');
+		if(element) {
+			document.getElementById('get_datetime-date').disabled = element.checked;
+			document.getElementById('get_datetime-date22').disabled = element.checked;
+			document.getElementById('get_datetime-time').disabled = element.checked;
+			document.getElementById('get_datetime-time22').disabled = element.checked;
+			document.getElementById('b_updtime').disabled = element.checked;
+		}
+	}
+}
+</script>
 </head>
 <body class="test">
 <div id="menu" class="menu"><script src="menu.js"></script></div>
@@ -18,7 +29,7 @@
 	<input type="submit" value="?" onclick='location.assign("time-help.html")' style="float:none;">
 	</h1>
 	<div class="row1">
-		<table>
+		<table border="1" rules="rows">
 		<thead>
 		<tr>
 			<th>Описание</th>
@@ -41,6 +52,24 @@
 			</td>
 		</tr>
 		<tr>
+			<td>Синхронизация раз в час с I2C часами <sup>1</sup></td>
+			<td>
+				<input type="checkbox" id="get_datetime-update_i2c" onchange="setParam('get_datetime(UPDATE_I2C)');" >
+			</td>
+		</tr>								
+		<tr>
+			<td>Синхронизация времени с сервером раз в сутки</td>
+			<td>
+				<input type="checkbox" id="get_datetime-update" onchange="setParam('get_datetime(UPDATE)');" >
+			</td>
+		</tr>	
+		<tr>
+			<td>Использовать HTTP сервер времени</td>
+			<td>
+				<input type="checkbox" id="get_datetime-uhttp" onchange="setParam('get_datetime(UHTTP)');" >
+			</td>
+		</tr>	
+		<tr>
 			<td><span id="get_ntp"></span> сервер</td>
 			<td>
 				<input id="get_datetime-ntp" type="text">
@@ -51,19 +80,7 @@
 			<td></td>
 			<td id="get_ntpr"></td>
 		</tr>
-		<tr>
-			<td>Синхронизация времени с сервером раз в сутки</td>
-			<td>
-				<input type="checkbox" name="get_datetime-update" id="get_datetime-update" onchange="setParam('get_datetime(UPDATE)');" >
-			</td>
-		</tr>	
-		<tr>
-			<td>Синхронизация раз в час с I2C часами <sup>1</sup></td>
-			<td>
-				<input type="checkbox" name="get_datetime-update_i2c" id="get_datetime-update_i2c" onchange="setParam('get_datetime(UPDATE_I2C)');" >
-			</td>
-		</tr>								
-		<tr><td>Обновить время с сервера</td><td><input type="submit" value="Обновить"  onclick='loadParam("update_NTP")'></td></tr>
+		<tr><td>Обновить время с сервера</td><td><input type="submit" id="b_updtime" value="Обновить" onclick='loadParam("update_NTP")'></td></tr>
 	</tbody>
 	</table>
 </div>	

@@ -1,29 +1,33 @@
-<html>
-<head>
-	<title>Сетевые настройки. Народный контроллер ТН</title>
-	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<link rel="stylesheet" type="text/css" href="style.css">
-	<script type='text/javascript' src='scripts.js'></script>
-	<script type="text/javascript">
-		window.onload = function() {
-		loadParam("get_Net(NO_PING),get_Net(PING),get_Net(NSLP),get_Net(NO_ACK),get_Net(DELAY_ACK),get_Net(SIZE),get_Net(MAC),get_Net(PORT),get_Net(IP),get_Net(SUBNET),get_Net(GATEWAY),get_Net(DNS),get_Net(DHCP),get_Net(PASS),get_Net(PASSADMIN),get_Net(PASSUSER),get_Net(INIT),get_Net(NSLR),get_Net(NSLS),get_Net(WLOG),get_Net(WFLOG)");
-		updateParam("get_socketInfo,get_socketRes");
-	};
-	</script>
+<html lang="ru"><head>
+<title>Сетевые настройки. Народный контроллер ТН</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" type="text/css" href="style.css">
+<script type='text/javascript' src='scripts.js'></script>
+<script type="text/javascript">
+window.onload = function() {
+	loadParam("get_Net(NO_PING),get_Net(PING),get_Net(NSLP),get_Net(NO_ACK),get_Net(DELAY_ACK),get_Net(SIZE),get_Net(MAC),get_Net(PORT),get_Net(IP),get_Net(SUBNET),get_Net(GATEWAY),get_Net(DNS),get_Net(DHCP),get_Net(PASS),get_Net(PASSADMIN),get_Net(PASSUSER),get_Net(INIT),get_Net(NSLR),get_Net(NSLS),get_Net(WLOG),get_Net(WFLOG)");
+	updateParam("get_socketInfo,get_socketRes");
+};
+function clear_cache()
+{
+	caches.keys().then((keyList) => Promise.all(keyList.map((key) => caches.delete(key))));
+	location.reload(1);
+}
+</script>
 </head>
 <body class="test">
 <div id="menu" class="menu"><script src="menu.js"></script></div>
 <div class="content">
-	<h1>Сеть<input type="submit" value="Записать в EEPROM"  onclick='loadParam("set_SAVE")'>
-	<input type="submit" value="?" onclick='location.assign("lan-help.html")' style="float:none;">
+	<h1>Сеть (Ctrl-F5 для обновления после ввода пароля)<input type="submit" value="Записать в EEPROM"  onclick='loadParam("set_SAVE")'> 
+	<input type="submit" value="?" onclick='location.assign("lan-help.html")' style="float:none;"> <input type="submit" value="Обновить" onclick='clear_cache();'>
 	</h1>
 	<div class="row1">
 	<h2>Сетевые настройки <sup>1</sup></h2>
 	<h4>Внимание! Неправильные сетевые настройки могут привести к потери управления ТН.<br/>
 	Перевод контроллера в режим safeNetwork - сброс контроллера при нажатой аппаратной кнопке "On/Off"<br/>
 	</h4>
-		<table>
+		<table border="1" rules="rows">
 		<tbody>
 		<tr>
 			<td>Использовать DHCP сервер</td>
@@ -53,7 +57,7 @@
 			<td>Аппаратный mac адрес</td>
 			<td nowrap><input id="get_net-mac" type="text" ><input type="submit" value=">" onclick="if(validmac('get_net-mac')) setParam('get_Net(MAC)');"></td>
 		</tr>					
-<tr><td></td><td><input type="submit" value="Применить настройки (2)" onclick='loadParam("set_updateNet")'></td></tr>
+		<tr><td></td><td><input type="submit" value="Применить настройки (2)" onclick='loadParam("set_updateNet")'></td></tr>
 	</tbody>
 	</table>						
 	1. Если активирован режим safeNetwork сетевые настройки берутся по умолчанию, но выводятся значения из настроек eeprom (можно корректировать)<br/>
@@ -62,7 +66,7 @@
 
 	<div class="row1">
 		<h2>Безопасность</h2>	
-		<table>
+		<table border="1" rules="rows">
 		<tbody>
 		<tr>
 			<td>Запрет пинга контроллера <sup>1</sup></td>
@@ -74,11 +78,11 @@
 		</tr>			
 		<tr>
 			<td>Пароль пользователя (если пустой, то простой веб по умолчанию)</td>
-			<td nowrap><input id="get_net-passuser" type="text" maxlength="10"><input type="submit" value=">" onclick="setParam('get_Net(PASSUSER)');"></td>
+			<td nowrap><input id="get_net-passuser" type="password" maxlength="10"><input type="submit" value=">" onclick="setParam('get_Net(PASSUSER)');"></td>
 		</tr>
 		<tr>
 			<td>Пароль администратора</td>
-			<td nowrap><input id="get_net-passadmin" type="text" maxlength="10"><input type="submit" value=">" onclick="setParam('get_Net(PASSADMIN)');"></td>
+			<td nowrap><input id="get_net-passadmin" type="password" maxlength="10"><input type="submit" value=">" onclick="setParam('get_Net(PASSADMIN)');"></td>
 		</tr>
 		<tr>
 			<td>Логировать ошибки веб запросов</td>
@@ -96,7 +100,7 @@
 
 <div class="row1">
 	<h2>Настройки сетевого чипа Wiznet W5xxx</h2>
-	<table>
+	<table border="1" rules="rows">
 		<tr>
 			<td>Проверка ping до сервера, при отсутвии сброс сети</td>
 			<td><select id="get_net-nslp" onchange="setParam('get_Net(NSLP)','get_net-nslp');"></select></td>
@@ -139,7 +143,7 @@
 <div class="row1">
 	<h2>Состояние сокетов чипа Wiznet W5xxx.</h2>
 	<h4>Число сброшенных сокетов: <span id="get_socketres"></span></h4>
-		<table>
+		<table border="1" rules="rows">
 		<thead>
 		<tr>
 			<th>№</th>
